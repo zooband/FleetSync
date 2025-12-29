@@ -36,9 +36,19 @@ type FleetDetail = {
     center_id: number
 }
 
+// 车队车辆列表的后端返回会附带额外字段（不在全局 Vehicle 类型里）
+type FleetVehicle = Vehicle & {
+    driver_id: number | null
+    active_order_status?: string | null
+    active_order_id?: number | null
+}
+
+type VehicleLocalPatch = Partial<FleetVehicle> & { vehicle_id?: never }
+type DriverLocalPatch = Partial<Driver> & { person_id?: never }
+
 const fleetDetail = ref<FleetDetail | null>(null)
 
-const vehicles = ref<Vehicle[]>([])
+const vehicles = ref<FleetVehicle[]>([])
 const vehicle_total = ref(0)
 
 const drivers = ref<Driver[]>([])
@@ -108,7 +118,7 @@ const vehicle_regex = /^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂�
 
 // 分配司机（车辆 -> 司机）
 const assignDialogVisible = ref(false)
-const assigningVehicle = ref<Vehicle | null>(null)
+const assigningVehicle = ref<FleetVehicle | null>(null)
 const selectedDriver = ref<Driver | null>(null)
 const driverSuggestions = ref<Driver[]>([])
 const assigning = ref(false)
@@ -124,35 +134,40 @@ async function completeFleetDrivers(query: string) {
     driverSuggestions.value = (rows ?? []) as Driver[]
 }
 
-function openAssignDriver(item: Vehicle) {
+function openAssignDriver(item: FleetVehicle) {
     assigningVehicle.value = item
     selectedDriver.value = null
     driverSuggestions.value = []
     assignDialogVisible.value = true
 }
 
-function updateLocalVehicle(vehicle_id: Vehicle['vehicle_id'], patch: Record<string, unknown>) {
+function updateLocalVehicle(vehicle_id: Vehicle['vehicle_id'], patch: VehicleLocalPatch) {
     const idx = vehicles.value.findIndex(v => v.vehicle_id === vehicle_id)
     if (idx < 0) return
-    vehicles.value[idx] = { ...(vehicles.value[idx] as unknown as Record<string, unknown>), ...patch } as unknown as Vehicle
+    const current = vehicles.value[idx]
+    if (!current) return
+    vehicles.value[idx] = { ...current, ...patch }
 }
 
-function updateLocalDriver(driver_id: Driver['person_id'], patch: Record<string, unknown>) {
+function updateLocalDriver(driver_id: Driver['person_id'], patch: DriverLocalPatch) {
     const idx = drivers.value.findIndex(d => d.person_id === driver_id)
     if (idx < 0) return
-    drivers.value[idx] = { ...(drivers.value[idx] as unknown as Record<string, unknown>), ...patch } as unknown as Driver
+    const current = drivers.value[idx]
+    if (!current) return
+    drivers.value[idx] = { ...current, ...patch }
 }
 
-async function toggleVehicleMaintenance(item: Vehicle) {
+async function toggleVehicleMaintenance(item: FleetVehicle) {
     // 仅允许在 空闲/维修中 之间切换
-    const current = String((item as any)?.vehicle_status ?? '')
-    if (current === '运输中' || String((item as any)?.active_order_status ?? '') === '运输中' || String((item as any)?.active_order_status ?? '') === '装货中') {
+    const current = String(item.vehicle_status ?? '')
+    const active = String(item.active_order_status ?? '')
+    if (current === '运输中' || active === '运输中' || active === '装货中') {
         toast.add({ severity: 'warn', summary: '提示', detail: '车辆存在进行中的运单，无法切换维修状态', life: 1500 })
         return
     }
     const nextStatus = current === '维修中' ? '空闲' : '维修中'
     try {
-        await updateFleetVehicle(item.vehicle_id, { vehicle_status: nextStatus } as unknown as Partial<Vehicle>)
+        await updateFleetVehicle(item.vehicle_id, { vehicle_status: nextStatus })
         updateLocalVehicle(item.vehicle_id, { vehicle_status: nextStatus })
         toast.add({ severity: 'success', summary: '成功', detail: `车辆已切换为${nextStatus}`, life: 1500 })
     } catch (e) {
@@ -161,7 +176,7 @@ async function toggleVehicleMaintenance(item: Vehicle) {
 }
 
 async function toggleDriverLeave(item: Driver) {
-    const current = String((item as any)?.driver_status ?? '')
+    const current = String(item.driver_status ?? '')
     const nextStatus = current === '请假中' ? '空闲' : '请假中'
     try {
         const res = await apiFetch(`/api/personnels/drivers/${encodeURIComponent(String(item.person_id))}`, {
@@ -180,8 +195,8 @@ async function toggleDriverLeave(item: Driver) {
     }
 }
 
-async function departVehicle(item: Vehicle) {
-    if ((item as unknown as Record<string, unknown>)['driver_id'] == null) {
+async function departVehicle(item: FleetVehicle) {
+    if (item.driver_id == null) {
         toast.add({ severity: 'warn', summary: '提示', detail: '请先为车辆分配司机', life: 1500 })
         return
     }
@@ -198,7 +213,7 @@ async function departVehicle(item: Vehicle) {
     }
 }
 
-async function deliverVehicle(item: Vehicle) {
+async function deliverVehicle(item: FleetVehicle) {
     dispatching.value = true
     try {
         const res = await apiFetch(`/api/vehicles/${encodeURIComponent(String(item.vehicle_id))}/deliver`, { method: 'POST' })
@@ -252,7 +267,7 @@ async function fetchFleetMonthlyReport() {
 async function searchFleetVehicles(query: string, limit: number, offset: number) {
     if (!Number.isFinite(fleetId.value)) throw new Error('无效的车队ID')
     const params = new URLSearchParams({ q: query, limit: String(limit), offset: String(offset) })
-    const data = await apiJson<PaginatedResponse<Vehicle>>(`/api/fleets/${fleetId.value}/vehicles?${params}`)
+    const data = await apiJson<PaginatedResponse<FleetVehicle>>(`/api/fleets/${fleetId.value}/vehicles?${params}`)
     vehicles.value = data.data
     vehicle_total.value = data.total
 }
@@ -267,10 +282,11 @@ async function searchFleetDrivers(query: string, limit: number, offset: number) 
 
 async function createFleetDriver(item: Partial<Driver>) {
     if (!Number.isFinite(fleetId.value)) throw new Error('无效的车队ID')
+    const contact = item.person_contact?.trim() ?? ''
     const payload = {
-        person_name: String((item as any)?.person_name ?? '').trim(),
-        person_contact: ((item as any)?.person_contact ?? null) as string | null,
-        driver_license: String((item as any)?.driver_license ?? '').trim(),
+        person_name: String(item.person_name ?? '').trim(),
+        person_contact: contact ? contact : null,
+        driver_license: String(item.driver_license ?? '').trim(),
     }
     if (!payload.person_name) throw new Error('请填写姓名')
     if (!payload.driver_license) throw new Error('请填写驾照等级')
@@ -295,10 +311,11 @@ async function deleteFleetDriver(driver_id: Driver['person_id']) {
 }
 
 async function updateFleetDriver(driver_id: Driver['person_id'], updates: Partial<Driver>) {
+    const contact = updates.person_contact?.trim() ?? ''
     const payload = {
-        person_name: String((updates as any)?.person_name ?? '').trim(),
-        person_contact: String((updates as any)?.person_contact ?? '').trim() || null,
-        driver_license: String((updates as any)?.driver_license ?? '').trim(),
+        person_name: String(updates.person_name ?? '').trim(),
+        person_contact: contact ? contact : null,
+        driver_license: String(updates.driver_license ?? '').trim(),
     }
     if (!payload.person_name) throw new Error('请填写姓名')
     if (!payload.driver_license) throw new Error('请填写驾照等级')
@@ -362,7 +379,7 @@ async function assignDriverToVehicle() {
     }
 }
 
-async function unassignDriverFromVehicle(item: Vehicle) {
+async function unassignDriverFromVehicle(item: FleetVehicle) {
     assigning.value = true
     try {
         await updateFleetVehicle(item.vehicle_id, { driver_id: null } as unknown as Partial<Vehicle>)
@@ -510,17 +527,17 @@ if (reportMonth.value == null) {
             :allowCreate="!isManagerReadonly" :allowEdit="!isManagerReadonly" :allowDelete="!isManagerReadonly">
             <template #cardActions="{ item }">
                 <PrimeButton v-if="isOperator" size="small" severity="secondary"
-                    :label="String((item as any).vehicle_status) === '维修中' ? '结束维护' : '维护模式'"
-                    @click.stop="toggleVehicleMaintenance(item as any)" />
-                <PrimeButton v-if="(item as any).active_order_status === '装货中'" size="small" severity="success"
-                    :label="(item as any).driver_id == null ? '开始发车' : '开始发车'" :loading="dispatching"
-                    :disabled="(item as any).driver_id == null" @click.stop="departVehicle(item as any)" />
-                <PrimeButton v-else-if="(item as any).active_order_status === '运输中'" size="small" severity="success"
-                    label="确认送达" :loading="dispatching" @click.stop="deliverVehicle(item as any)" />
-                <PrimeButton v-if="(item as any).driver_id == null" size="small" label="分配司机"
-                    @click.stop="openAssignDriver(item as any)" />
+                    :label="(item as FleetVehicle).vehicle_status === '维修中' ? '结束维护' : '维护模式'"
+                    @click.stop="toggleVehicleMaintenance(item as FleetVehicle)" />
+                <PrimeButton v-if="(item as FleetVehicle).active_order_status === '装货中'" size="small" severity="success"
+                    label="开始发车" :loading="dispatching" :disabled="(item as FleetVehicle).driver_id == null"
+                    @click.stop="departVehicle(item as FleetVehicle)" />
+                <PrimeButton v-else-if="(item as FleetVehicle).active_order_status === '运输中'" size="small"
+                    severity="success" label="确认送达" :loading="dispatching" @click.stop="deliverVehicle(item as FleetVehicle)" />
+                <PrimeButton v-if="(item as FleetVehicle).driver_id == null" size="small" label="分配司机"
+                    @click.stop="openAssignDriver(item as FleetVehicle)" />
                 <PrimeButton v-else size="small" severity="secondary" label="取消分配司机" :loading="assigning"
-                    @click.stop="unassignDriverFromVehicle(item as any)" />
+                    @click.stop="unassignDriverFromVehicle(item as FleetVehicle)" />
             </template>
         </EntityCardBoard>
         <h3 class="text-xl font-bold mb-4">司机信息</h3>
@@ -529,8 +546,8 @@ if (reportMonth.value == null) {
             :editColumns="editFleetDriverColumns" :allowEdit="isAdmin" :allowDelete="isAdmin" :click="goToDriverDetail">
             <template #cardActions="{ item }">
                 <PrimeButton v-if="isOperator" size="small" severity="secondary"
-                    :label="String((item as any).driver_status) === '请假中' ? '结束请假' : '标记请假中'"
-                    @click.stop="toggleDriverLeave(item as any)" />
+                    :label="(item as Driver).driver_status === '请假中' ? '结束请假' : '标记请假中'"
+                    @click.stop="toggleDriverLeave(item as Driver)" />
             </template>
         </EntityCardBoard>
 

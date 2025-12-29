@@ -28,6 +28,14 @@ const person = ref<PersonUnion | null>(null)
 const isAdmin = computed(() => auth.value?.role === 'admin')
 
 const isDriver = computed(() => (person.value as Record<string, unknown> | null)?.['person_role'] === '司机')
+
+function isDriverPerson(p: PersonUnion | null): p is Driver {
+    return !!p && (p as Personnel).person_role === '司机' && 'driver_license' in p
+}
+
+const driverPerson = computed<Driver | null>(() => {
+    return isDriverPerson(person.value) ? person.value : null
+})
 const displayedColumns = computed<readonly Columns[]>(() => {
     const role = (person.value as Record<string, unknown> | null)?.['person_role']
     if (role === '司机') return DriverColumns
@@ -122,9 +130,11 @@ const toast = useToast()
 
 function openEditDriver() {
     if (!isAdmin.value || !isDriver.value) return
-    editName.value = String((person.value as any)?.person_name ?? '').trim()
-    editContact.value = String((person.value as any)?.person_contact ?? '')
-    editLicense.value = String((person.value as any)?.driver_license ?? '').trim()
+    const d = driverPerson.value
+    if (!d) return
+    editName.value = String(d.person_name ?? '').trim()
+    editContact.value = String(d.person_contact ?? '')
+    editLicense.value = String(d.driver_license ?? '').trim()
     editVisible.value = true
 }
 
