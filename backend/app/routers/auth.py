@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app import auth_core, store
+from app import auth_core
+from app.db import connect_db
 
 router = APIRouter()
 
@@ -28,23 +29,57 @@ def login(payload: LoginRequest):
         token = auth_core.token_store.issue({"role": "admin"})
         return LoginResponse(token=token, role="admin", personnel_id=None, fleet_id=None, display_name="admin")
 
-    if not u.isdigit():
-        raise HTTPException(status_code=400, detail="用户名只能是 admin 或 数字工号")
-    pid = int(u)
+    prefix = u[0].upper()
+    raw_id = u[1:]
+    if not raw_id.isdigit():
+        raise HTTPException(status_code=400, detail="工号格式错误，应为 M<数字> 或 D<数字> 或 admin")
 
-    for m in store.managers_db:
-        if getattr(m, "person_id", None) == pid:
-            token = auth_core.token_store.issue({"role": "manager", "personnel_id": pid, "fleet_id": getattr(m, "fleet_id", None)})
-            return LoginResponse(token=token, role="manager", personnel_id=pid, fleet_id=getattr(m, "fleet_id", None), display_name=getattr(m, "person_name", None))
+    person_id = int(raw_id)
 
-    for d in store.drivers_db:
-        if getattr(d, "person_id", None) == pid:
-            token = auth_core.token_store.issue({"role": "staff", "personnel_id": pid})
-            return LoginResponse(token=token, role="staff", personnel_id=pid, fleet_id=getattr(d, "fleet_id", None), display_name=getattr(d, "person_name", None))
+    if prefix not in {"M", "D"}:
+        raise HTTPException(status_code=404, detail="工号不存在，请先用 admin 创建人员")
 
-    for p in store.personnel_db:
-        if getattr(p, "person_id", None) == pid:
-            token = auth_core.token_store.issue({"role": "staff", "personnel_id": pid})
-            return LoginResponse(token=token, role="staff", personnel_id=pid, fleet_id=None, display_name=getattr(p, "person_name", None))
+    conn = connect_db()
+    try:
+        cursor = conn.cursor()
+        if prefix == "M":
+            # 调度主管
+            cursor.execute(
+                "SELECT fleet_id, person_name AS display_name FROM Managers WHERE is_deleted = 0 AND person_id = %s",
+                (person_id,),
+            )
+            cursor_row = cursor.fetchone()
+            if cursor_row:
+                token = auth_core.token_store.issue(
+                    {"role": "manager", "personnel_id": person_id, "fleet_id": cursor_row["fleet_id"]}
+                )
+                return LoginResponse(
+                    token=token,
+                    role="manager",
+                    personnel_id=person_id,
+                    fleet_id=cursor_row["fleet_id"],
+                    display_name=cursor_row["display_name"],
+                )
 
-    raise HTTPException(status_code=404, detail="工号不存在，请先用 admin 创建人员")
+        if prefix == "D":
+            # 司机
+            cursor.execute(
+                "SELECT fleet_id, person_name AS display_name FROM Drivers WHERE is_deleted = 0 AND person_id = %s",
+                (person_id,),
+            )
+            cursor_row = cursor.fetchone()
+            if cursor_row:
+                token = auth_core.token_store.issue(
+                    {"role": "staff", "personnel_id": person_id, "fleet_id": cursor_row["fleet_id"]}
+                )
+                return LoginResponse(
+                    token=token,
+                    role="staff",
+                    personnel_id=person_id,
+                    fleet_id=cursor_row["fleet_id"],
+                    display_name=cursor_row["display_name"],
+                )
+
+        raise HTTPException(status_code=404, detail="工号不存在或已被删除")
+    finally:
+        conn.close()

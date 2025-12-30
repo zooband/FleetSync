@@ -1,52 +1,29 @@
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel
 
-from app import schemas, store
-from app.routers import vehicles
+from app.db import get_db
+from app.auth_core import require_admin_manager_or_driver_self
 
 router = APIRouter()
 
+class Order(BaseModel):
+    order_id: int
+    origin: str
+    destination: str
+    weight: float
+    volume: float
+    status: str  # ['待处理', '装货中', '运输中', '已完成', '已取消']
+    vehicle_id: str | None = None
+    completed_at: date | None = None
 
-class SelectOrder(BaseModel):
-    data: list[schemas.Order]
+
+class OrderSelect(BaseModel):
+    data: list[Order]
     total: int
 
-
-def select_orders_by_status(status_value: str, limit: int, offset: int) -> SelectOrder:
-    filtered = [o for o in store.orders_db if o.status == status_value]
-    total = len(filtered)
-    paginated = filtered[offset : offset + limit]
-    return SelectOrder(data=paginated, total=total)
-
-
-@router.get("/api/orders/pending", response_model=SelectOrder)
-def get_orders_pending(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
-    return select_orders_by_status("待处理", limit, offset)
-
-
-@router.get("/api/orders/loading", response_model=SelectOrder)
-def get_orders_loading(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
-    return select_orders_by_status("装货中", limit, offset)
-
-
-@router.get("/api/orders/transit", response_model=SelectOrder)
-def get_orders_transit(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
-    return select_orders_by_status("运输中", limit, offset)
-
-
-@router.get("/api/orders/done", response_model=SelectOrder)
-def get_orders_done(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
-    return select_orders_by_status("已完成", limit, offset)
-
-
-@router.get("/api/orders/cancelled", response_model=SelectOrder)
-def get_orders_cancelled(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
-    return select_orders_by_status("已取消", limit, offset)
-
-
-class CreateOrder(BaseModel):
+class OrderCreate(BaseModel):
     origin: str
     destination: str
     weight: float
@@ -54,85 +31,119 @@ class CreateOrder(BaseModel):
     status: str
     vehicle_id: str | None
 
-
-@router.post("/api/orders", response_model=schemas.Order, status_code=status.HTTP_201_CREATED)
-def insert_order(order: CreateOrder):
-    new_id = store.get_next_order_id()
-    new_order = schemas.Order(
-        order_id=new_id,
-        origin=order.origin,
-        destination=order.destination,
-        weight=order.weight,
-        volume=order.volume,
-        status=order.status,
-        vehicle_id=order.vehicle_id,
-    )
-    store.orders_db.append(new_order)
-    return new_order
-
-
-class UpdateOrder(BaseModel):
+class OrderUpdate(BaseModel):
     status: str | None = None
     vehicle_id: str | None = None
 
 
-@router.patch("/api/orders/{order_id}", response_model=schemas.Order)
-def update_order(order_id: int, updates: UpdateOrder):
-    for i, order in enumerate(store.orders_db):
-        if order.order_id == order_id:
-            prev_vehicle_id = order.vehicle_id
-            update_data = updates.model_dump(exclude_unset=True)
+def select_orders_by_status(status_value: str, limit: int, offset: int) -> OrderSelect:
+    conn = get_db()
+    cursor = conn.cursor()
 
-            # 若通过该接口将订单置为“已完成”，同步记录完成日期
-            if update_data.get("status") == "已完成":
-                update_data.setdefault("completed_at", date.today())
+    cursor.execute("SELECT COUNT(*) AS total FROM Orders WHERE status = %s", (status_value,))
+    total = cursor.fetchone()["total"]
 
-            # 分配/变更车辆：允许同车多单（装货中/运输中合并占用），但必须满足剩余容量。
-            if "vehicle_id" in update_data and update_data.get("vehicle_id") is not None:
-                new_vehicle_id = str(update_data["vehicle_id"])
-                vehicle = next((v for v in store.vehicles_db if v.vehicle_id == new_vehicle_id), None)
-                if vehicle is None:
-                    raise HTTPException(status_code=404, detail="找不到车辆")
-                if vehicle.vehicle_status == "维修中":
-                    raise HTTPException(status_code=400, detail="车辆维修中，无法分配")
-                if vehicle.vehicle_status == "运输中":
-                    raise HTTPException(status_code=400, detail="车辆运输中，无法追加订单")
+    cursor.execute(
+        "SELECT order_id, origin, destination, weight, volume, status, vehicle_id, completed_at "
+        "FROM Orders WHERE status = %s ORDER BY order_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+        (status_value, offset, limit),
+    )
+    rows = cursor.fetchall()
+    data = [Order(**r) for r in rows]
+    return OrderSelect(data=data, total=total)
 
-                used_w = 0.0
-                used_v = 0.0
-                for o in store.orders_db:
-                    if o.order_id == order.order_id:
-                        continue
-                    if o.vehicle_id != new_vehicle_id:
-                        continue
-                    if o.status not in ("装货中", "运输中"):
-                        continue
-                    used_w += float(o.weight)
-                    used_v += float(o.volume)
 
-                remaining_w = max(float(vehicle.vehicle_load_capacity) - used_w, 0.0)
-                remaining_v = max(float(vehicle.vehicle_volumn_capacity) - used_v, 0.0)
+@router.get("/api/orders/pending", response_model=OrderSelect)
+def get_orders_pending(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
+    return select_orders_by_status("待处理", limit, offset)
 
-                if float(order.weight) > remaining_w or float(order.volume) > remaining_v:
-                    raise HTTPException(status_code=400, detail="车辆剩余容量不足")
 
-            updated_order = order.model_copy(update=update_data)
-            store.orders_db[i] = updated_order
+@router.get("/api/orders/loading", response_model=OrderSelect)
+def get_orders_loading(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
+    return select_orders_by_status("装货中", limit, offset)
 
-            if updated_order.status == "已取消" and prev_vehicle_id:
-                vehicles.release_vehicle_if_idle(prev_vehicle_id, updated_order.order_id)
 
-            return updated_order
-    raise HTTPException(status_code=404, detail="Order not found")
+@router.get("/api/orders/transit", response_model=OrderSelect)
+def get_orders_transit(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
+    return select_orders_by_status("运输中", limit, offset)
+
+
+@router.get("/api/orders/done", response_model=OrderSelect)
+def get_orders_done(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
+    return select_orders_by_status("已完成", limit, offset)
+
+
+@router.get("/api/orders/cancelled", response_model=OrderSelect)
+def get_orders_cancelled(limit: int = Query(10, ge=1), offset: int = Query(0, ge=0)):
+    return select_orders_by_status("已取消", limit, offset)
+
+
+@router.post("/api/orders", response_model=Order, status_code=status.HTTP_201_CREATED)
+def insert_order(order: OrderCreate, conn=Depends(get_db)):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO Orders (weight, volume, origin, destination, order_status, vehicle_id) VALUES (%s, %s, %s, %s, %s, %s);", (order.weight, order.volume, order.origin, order.destination, order.status, order.vehicle_id))
+        cursor.execute("SELECT SCOPE_IDENTITY() AS order_id;")
+        order_id = int(cursor.fetchone()["order_id"])
+        conn.commit()
+        return {"detail": "订单创建成功", "order_id": order_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="订单创建失败") from e
 
 
 @router.delete("/api/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
-def cancel_order_compat(order_id: int):
-    for order in store.orders_db:
-        if order.order_id == order_id:
-            prev_vehicle_id = order.vehicle_id
-            order.status = "已取消"
-            if prev_vehicle_id:
-                vehicles.release_vehicle_if_idle(prev_vehicle_id, order.order_id)
-            return
-    raise HTTPException(status_code=404, detail="Order not found")
+def cancel_order(order_id: int):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT vehicle_id FROM Orders WHERE order_id = %s AND order_status != '已取消'", (order_id,))
+        row = cursor.fetchone()
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到订单记录")
+
+        cursor.execute("UPDATE Orders SET order_status = '已取消' WHERE order_id = %s AND order_status != '已取消'", (order_id,))
+        conn.commit()
+        return {"detail": "订单取消成功"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="取消订单失败") from e
+    
+
+@router.get("/api/drivers/{person_id}/orders", response_model=OrderSelect)
+def get_driver_finished_orders(
+    person_id: int,
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    limit: int = Query(10, ge=1),
+    offset: int = Query(0, ge=0),
+    auth_info=Depends(require_admin_manager_or_driver_self),
+):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) AS total FROM Orders o JOIN CompletedTaskLogs c ON o.order_id = c.order_id WHERE driver_id = %s"
+        + (" AND occurrence_time >= %s" if start else "")
+        + (" AND occurrence_time <= %s" if end else ""),
+        tuple(
+            arg
+            for arg in [person_id, start, end]
+            if arg is not None
+        ),
+    )
+    total = cursor.fetchone()["total"]
+
+    cursor.execute(
+        "SELECT order_id, origin, destination, weight, volume, order_status AS status, vehicle_id, completed_at FROM Orders o JOIN CompletedTaskLogs c ON o.order_id = c.order_id WHERE driver_id = %s"
+        + (" AND occurrence_time >= %s" if start else "")
+        + (" AND occurrence_time <= %s" if end else "")
+        + " ORDER BY incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+        tuple(
+            arg
+            for arg in [person_id, start, end, offset, limit]
+            if arg is not None
+        ),
+    )
+    rows = cursor.fetchall()
+    data = [Order(**r) for r in rows]
+    return OrderSelect(data=data, total=total)

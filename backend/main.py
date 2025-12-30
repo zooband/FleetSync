@@ -2,9 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth_core import auth_middleware
-from app.routers import auth, centers, drivers, fleets, incidents, orders, personnels, vehicles
+from app.routers import auth, centers, drivers, fleets, incidents, orders, vehicles, managers
 
 app = FastAPI()
+
+app.middleware("http")(auth_middleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,8 +19,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.middleware("http")(auth_middleware)
-
 app.include_router(auth.router)
 app.include_router(drivers.router)
 app.include_router(vehicles.router)
@@ -26,4 +26,4 @@ app.include_router(orders.router)
 app.include_router(incidents.router)
 app.include_router(fleets.router)
 app.include_router(centers.router)
-app.include_router(personnels.router)
+app.include_router(managers.router)
