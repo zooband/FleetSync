@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel
 
-from app.auth_core import require_admin, require_admin_or_fleet_manager, require_admin_or_vehicle_fleet_manager
+from app.auth_core import require_admin, require_admin_or_fleet_manager, require_admin_or_vehicle_fleet_manager, require_admin_or_manager
 from app.db import get_db
 
 router = APIRouter()
@@ -230,16 +230,34 @@ def get_vehicles_of_fleet(
 @router.get("/api/vehicles")
 def get_vehicles(
     q: str | None = Query(""), 
+    status: str | None = Query(None),
     limit: int = Query(10, ge=1), 
     offset: int = Query(0, ge=0), 
-    auth_info=Depends(require_admin), 
+    auth_info=Depends(require_admin_or_manager), 
     conn=Depends(get_db)
 ):
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) AS total FROM View_VehicleResourceStatus WHERE (vehicle_id LIKE %s)", (f"%{q}%",))
+
+    where_sql = "WHERE (vehicle_id LIKE %s)"
+    params: list[object] = [f"%{q}%"]
+
+    if status:
+        where_sql += " AND vehicle_status = %s"
+        params.append(status)
+
+    # 调度主管：仅允许查看自己车队的车辆
+    if auth_info.get("role") == "manager":
+        where_sql += " AND fleet_id = %s"
+        params.append(auth_info.get("fleet_id"))
+
+    cursor.execute(f"SELECT COUNT(*) AS total FROM View_VehicleResourceStatus {where_sql}", tuple(params))
     total = cursor.fetchone()["total"]
 
-    cursor.execute("SELECT vehicle_id, max_weight, max_volume, remaining_weight, remaining_volume, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (f"%{q}%", offset, limit))
+    cursor.execute(
+        f"SELECT vehicle_id, max_weight, max_volume, remaining_weight, remaining_volume, vehicle_status, fleet_id, driver_name "
+        f"FROM View_VehicleResourceStatus {where_sql} ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+        tuple(params + [offset, limit]),
+    )
     rows = cursor.fetchall()
     data = [Vehicle(**r) for r in rows]
 

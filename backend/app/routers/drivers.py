@@ -167,13 +167,18 @@ def list_drivers(
 
 @router.get("/api/drivers/{person_id}", response_model=Driver)
 def get_driver_detail(
-    person_id: str = Path(..., regex=r"^D\d+$", description="司机 ID，格式为 D+数字"),
+    person_id: str = Path(..., description="司机 ID，可为 D+数字（如 D1）或纯数字"),
     auth_info=Depends(require_admin_manager_or_driver_self),
     conn=Depends(get_db),
 ):
-    if not person_id or person_id[0].upper() != "D" or not person_id[1:].isdigit():
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="driver_id 格式错误，应为 D+数字（如 D1）")
-    driver_id = int(person_id[1:])
+    raw = str(person_id).strip()
+    if raw.isdigit():
+        driver_id = int(raw)
+    else:
+        raw2 = raw.lstrip("D").lstrip("d")
+        if not raw2.isdigit():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="person_id 格式错误，应为数字或 D+数字（如 D1）")
+        driver_id = int(raw2)
 
     cursor = conn.cursor()
     
