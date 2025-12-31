@@ -97,20 +97,39 @@ def get_vehicle(
 
 
 @router.post("/api/vehicles/{vehicle_id}/depart")
-def depart_vehicle(vehicle_id: str):
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="此接口尚未实现")
+def depart_vehicle(vehicle_id: str, auth_info=Depends(require_admin_or_vehicle_fleet_manager), conn=Depends(get_db)):
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE Vehicles SET vehicle_status = %s WHERE vehicle_id = %s AND is_deleted = 0",
+            ("运输中", vehicle_id),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录")
+        conn.commit()
+        return {"detail": "车辆已发车"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="车辆发车失败") from e
 
-
-@router.post("/api/vehicles/{vehicle_id}/deliver")
-def deliver_vehicle(vehicle_id: str):  # 分配订单给车辆
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="此接口尚未实现")
-    # TODO: 实现此接口
 
 
 @router.delete("/api/vehicles/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_vehicle(vehicle_id: str):
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="此接口尚未实现")
-    # TODO: 实现此接口
+def delete_vehicle(vehicle_id: str, auth_info=Depends(require_admin), conn=Depends(get_db)):
+    # raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="此接口尚未实现")
+    # # T: 实现此接口
+    # 逻辑删除车辆
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Vehicles SET is_deleted = 1 WHERE vehicle_id = %s", (vehicle_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录")
+        conn.commit()
+        return {"detail": "车辆已删除"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="删除车辆失败") from e
+    
 
 
 # 定义一个新的返回模型，匹配前端的 data.available 和 data.unavailable
@@ -167,7 +186,7 @@ def get_vehicles_of_fleet(
     conn=Depends(get_db)
 ):
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) AS total FROM Vehicles WHERE fleet_id = %s AND is_deleted = 0 AND (vehicle_id LIKE %s)", (fleet_id, f"%{q}%"))
+    cursor.execute("SELECT COUNT(*) AS total FROM View_VehicleResourceStatus WHERE fleet_id = %s AND (vehicle_id LIKE %s)", (fleet_id, f"%{q}%"))
     total = cursor.fetchone()["total"]
 
     cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, remaining_weight AS remaining_load_capacity, remaining_volume AS remaining_volume_capacity, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE fleet_id = %s AND (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (fleet_id, f"%{q}%", offset, limit))
@@ -175,3 +194,23 @@ def get_vehicles_of_fleet(
     data = [Vehicle(**r) for r in rows]
 
     return VehiclesSelect(data=data, total=total)
+
+
+@router.get("/api/vehicles")
+def get_vehicles(
+    q: str | None = Query(""), 
+    limit: int = Query(10, ge=1), 
+    offset: int = Query(0, ge=0), 
+    auth_info=Depends(require_admin), 
+    conn=Depends(get_db)
+):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) AS total FROM View_VehicleResourceStatus WHERE (vehicle_id LIKE %s)", (f"%{q}%",))
+    total = cursor.fetchone()["total"]
+
+    cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, remaining_weight AS remaining_load_capacity, remaining_volume AS remaining_volume_capacity, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (f"%{q}%", offset, limit))
+    rows = cursor.fetchall()
+    data = [Vehicle(**r) for r in rows]
+
+    return VehiclesSelect(data=data, total=total)
+

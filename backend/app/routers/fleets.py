@@ -151,36 +151,54 @@ def update_fleet_manager(fleet_id: int, manager_id: str, updates: FleetManagerUp
 
 
 
+class FleetMonthlyReport(BaseModel):
+    orders: int
+    incidents: int
+    fines: float
+
 @router.get("/api/fleets/{fleet_id}/reports/monthly", response_model=FleetMonthlyReport)
-def get_fleet_monthly_report(fleet_id: int, month: str | None = Query(None)):
-    # TODO: 实现接口
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="该接口尚未实现")
-    # m = (month or datetime.now().strftime("%Y-%m")).strip()
-    # try:
-    #     base = datetime.strptime(m, "%Y-%m")
-    # except ValueError:
-    #     raise HTTPException(status_code=422, detail="month 格式应为 YYYY-MM")
+def get_fleet_monthly_report(
+    fleet_id: int, 
+    month: str | None = Query(None, description="格式: YYYY-MM"),
+    auth_info=Depends(require_admin_or_fleet_manager), 
+    conn=Depends(get_db)
+):
+    # 1. 时间解析逻辑
+    m_str = (month or datetime.now().strftime("%Y-%m")).strip()
+    try:
+        base_date = datetime.strptime(m_str, "%Y-%m")
+        target_year = base_date.year
+        target_month = base_date.month
+    except ValueError:
+        raise HTTPException(status_code=422, detail="month 参数格式必须为 YYYY-MM")
 
-    # start_d = date(base.year, base.month, 1)
-    # end_d = date(base.year + 1, 1, 1) if base.month == 12 else date(base.year, base.month + 1, 1)
+    try:
+        cursor = conn.cursor()
+        
+        # 2. 调用存储过程
+        # 使用参数化查询防止注入
+        cursor.execute(
+            "EXEC GetFleetMonthlyPerformance @FleetID=%s, @Year=%s, @Month=%s",
+            (fleet_id, target_year, target_month)
+        )
+        
+        row = cursor.fetchone()
+        
+        # 3. 结果组装
+        if row:
+            return FleetMonthlyReport(
+                orders=row['Total_Orders'],
+                incidents=row['Total_Incidents'],
+                fines=float(row['Total_Fine_Amount'])
+            )
+        return FleetMonthlyReport(orders=0, incidents=0, fines=0.0)
 
-    # fleet_vehicle_ids = {v.vehicle_id for v in store.vehicles_db if v.fleet_id == fleet_id}
-
-    # month_orders: list[schemas.Order] = []
-    # for o in store.orders_db:
-    #     if o.vehicle_id is None or o.vehicle_id not in fleet_vehicle_ids:
-    #         continue
-    #     if o.status != "已完成":
-    #         continue
-    #     d = getattr(o, "completed_at", None) or getattr(o, "created_at", None)
-    #     if d is None:
-    #         continue
-    #     if start_d <= d < end_d:
-    #         month_orders.append(o)
-    # month_incidents = [i for i in store.incidents_db if i.vehicle_id in fleet_vehicle_ids and start_d <= i.timestamp < end_d]
-    # fines = sum((i.fine_amount or 0.0) for i in month_incidents)
-
-    # return FleetMonthlyReport(orders=len(month_orders), incidents=len(month_incidents), fines=float(fines))
+    except Exception as e:
+        # 在实验报告中可以提到此处捕获了数据库连接或语法异常
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"数据库统计执行失败: {str(e)}"
+        )
 
 
 @router.delete("/api/fleets/{fleet_id}", status_code=status.HTTP_204_NO_CONTENT)
