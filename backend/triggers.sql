@@ -165,3 +165,52 @@ AS BEGIN
     END
     
 END;
+GO
+-- 当某个订单取消的时候，检查该订单对应的车辆是否还有其他未完成的订单，如果没有，则将车辆状态改为“空闲”
+CREATE TRIGGER trg_SetVehicleIdleOnOrderCancel
+ON Orders
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
+    -- 检查是否更新了 order_status 字段
+    IF UPDATE(order_status)
+    BEGIN
+        -- 对于每个被取消订单的车辆，检查是否还有其他未完成订单
+        DECLARE @VehicleID NVARCHAR(10);
+
+        DECLARE CancelledOrdersCursor CURSOR FOR
+        SELECT i.vehicle_id
+        FROM inserted i
+        INNER JOIN deleted d ON i.order_id = d.order_id
+        WHERE d.order_status <> N'已取消' AND i.order_status = N'已取消';
+
+        OPEN CancelledOrdersCursor;
+        FETCH NEXT FROM CancelledOrdersCursor INTO @VehicleID;
+
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            -- 检查该车辆是否还有其他未完成订单
+            IF NOT EXISTS (
+                SELECT 1
+                FROM Orders o
+                WHERE o.vehicle_id = @VehicleID
+                  AND o.order_status NOT IN (N'已完成', N'已取消')
+                  AND o.is_deleted = 0
+            )
+            BEGIN
+                -- 将车辆状态更新为“空闲”
+                UPDATE Vehicles
+                SET vehicle_status = N'空闲'
+                WHERE vehicle_id = @VehicleID
+                  AND is_deleted = 0;
+            END
+
+            FETCH NEXT FROM CancelledOrdersCursor INTO @VehicleID;
+        END
+
+        CLOSE CancelledOrdersCursor;
+        DEALLOCATE CancelledOrdersCursor;
+    END
+END;

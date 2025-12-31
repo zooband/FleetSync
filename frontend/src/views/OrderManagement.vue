@@ -162,7 +162,8 @@ function openAssignVehicle(order: Order) {
 async function completeVehicle(query: string | undefined) {
     try {
         const q = (query ?? '').trim()
-        const params = new URLSearchParams({ q, limit: '10', offset: '0', status: '空闲' })
+        // 空闲或者装货中的车辆
+        const params = new URLSearchParams({ q, limit: '10', offset: '0', status: '空闲,装货中' })
         const raw = await apiJson<unknown>(`/api/vehicles?${params}`)
         const rows = Array.isArray(raw) ? (raw as Vehicle[]) : (((raw as { data?: Vehicle[] })?.data ?? raw) as Vehicle[])
 
@@ -173,7 +174,7 @@ async function completeVehicle(query: string | undefined) {
         vehicleSuggestions.value = (rows ?? []).filter(v => {
             const rec = v as unknown as Record<string, unknown>
             const status = String(rec['vehicle_status'] ?? '')
-            if (status !== '空闲') return false
+            if (status !== '空闲' && status !== '装货中') return false
 
             // 后端返回 VehicleView 时会带 remaining_*；如果没带就不做容量过滤。
             const remW = Number(rec['remaining_weight'])

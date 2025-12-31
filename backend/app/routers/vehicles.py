@@ -192,9 +192,9 @@ def get_vehicles_of_center(center_id: int, auth_info=Depends(require_admin), con
         all_vehicles = [Vehicle(**r) for r in rows]
 
         # 核心逻辑：根据业务规则分类 
-        # “可用”：状态为空闲 [cite: 32]
+        # “可用”：状态为空闲或者装货中，且剩余载重 > 0
         # “不可用”：状态为异常、维修中或满载（剩余载重 <= 0）
-        available = [v for v in all_vehicles if v.vehicle_status == '空闲' and (v.remaining_weight or 0) > 0]
+        available = [v for v in all_vehicles if (v.vehicle_status == '空闲' and (v.remaining_weight or 0) > 0) or (v.vehicle_status == '装货中' and (v.remaining_weight or 0) > 0)]
         unavailable = [v for v in all_vehicles if v not in available]
 
         return {
