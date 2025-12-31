@@ -44,7 +44,15 @@ class VehicleCreate(BaseModel):
 @router.post("/api/fleets/{fleet_id}/vehicles", status_code=status.HTTP_201_CREATED)
 def insert_vehicle(fleet_id: int, vehicle: VehicleCreate, auth_info=Depends(require_admin), conn=Depends(get_db)):
     try:
-        cursor = conn.cursor()
+        cursor = conn.cursor(as_dict=False)
+
+        cursor.execute(
+            "SELECT 1 FROM Fleets WHERE fleet_id = %s AND is_deleted = 0",
+            (fleet_id,),
+        )
+        if cursor.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"找不到ID为 {fleet_id} 的车队")
+
         cursor.execute(
             "INSERT INTO Vehicles (vehicle_id, max_weight, max_volume, vehicle_status, fleet_id) VALUES (%s, %s, %s, %s, %s);",
             (vehicle.vehicle_id, vehicle.vehicle_load_capacity, vehicle.vehicle_volume_capacity, "空闲", fleet_id),

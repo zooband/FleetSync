@@ -13,6 +13,41 @@ import { useToast } from 'primevue/usetoast'
 import { apiFetch, apiJson } from '@/services/api'
 import { auth } from '@/services/auth'
 
+async function readBackendError(res: Response): Promise<string> {
+    const msg = `请求失败 (${res.status})`
+    try {
+        const text = await res.text()
+        const trimmed = text.trim()
+        if (!trimmed) return msg
+
+        try {
+            const raw = JSON.parse(trimmed) as { detail?: unknown; message?: unknown }
+            const detail = raw?.detail ?? raw?.message
+            if (typeof detail === 'string' && detail.trim()) return detail.trim()
+        } catch {
+            // ignore
+        }
+
+        return trimmed
+    } catch {
+        return msg
+    }
+}
+
+async function apiOk(input: string, init: RequestInit = {}): Promise<Response> {
+    const res = await apiFetch(input, init)
+    if (!res.ok) throw new Error(await readBackendError(res))
+    return res
+}
+
+function normalizeDriverPid(raw: unknown): string {
+    const s = String(raw ?? '').trim()
+    if (!s) return ''
+    if (/^D\d+$/i.test(s)) return `D${s.slice(1)}`
+    if (/^\d+$/.test(s)) return `D${s}`
+    return s
+}
+
 const route = useRoute()
 const router = useRouter()
 
@@ -85,15 +120,11 @@ async function confirmFleetEdit() {
 
     fleetEditSubmitting.value = true
     try {
-        const res = await apiFetch(`/api/fleets/${fleetId.value}/manager/${fleetDetail.value?.manager_id}`, {
+        await apiOk(`/api/fleets/${fleetId.value}/manager/${fleetDetail.value?.manager_id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         })
-        if (!res.ok) {
-            const msg = await res.text().catch(() => '')
-            throw new Error(msg || '更新车队信息失败')
-        }
         fleetEditVisible.value = false
         await fetchFleetDetail()
         toast.add({ severity: 'success', summary: '成功', detail: '车队信息已更新', life: 1500 })
@@ -107,8 +138,8 @@ async function fetchFleetDetail() {
     fleetDetail.value = await apiJson<FleetDetail>(`/api/fleets/${fleetId.value}`)
 }
 
-function goToDriverDetail(item: { person_id: number }) {
-    router.push({ path: `/personnels/${item.person_id}` })
+function goToDriverDetail(item: { person_id: unknown }) {
+    router.push({ path: `/personnels/${normalizeDriverPid(item.person_id)}` })
 }
 
 // 车牌号校验（与 VehicleInfo 保持一致）
@@ -176,15 +207,11 @@ async function toggleDriverLeave(item: Driver) {
     const current = String(item.driver_status ?? '')
     const nextStatus = current === '休息中' ? '空闲' : '休息中'
     try {
-        const res = await apiFetch(`/api/drivers/${encodeURIComponent(String(item.person_id))}`, {
+        await apiOk(`/api/drivers/${encodeURIComponent(normalizeDriverPid(item.person_id))}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ driver_status: nextStatus }),
         })
-        if (!res.ok) {
-            const msg = await res.text().catch(() => '')
-            throw new Error(msg || '更新司机状态失败')
-        }
         updateLocalDriver(item.person_id, { driver_status: nextStatus })
         toast.add({ severity: 'success', summary: '成功', detail: `司机已切换为${nextStatus}`, life: 1500 })
     } catch (e) {
@@ -199,8 +226,7 @@ async function departVehicle(item: FleetVehicle) {
     }
     dispatching.value = true
     try {
-        const res = await apiFetch(`/api/vehicles/${encodeURIComponent(String(item.vehicle_id))}/depart`, { method: 'POST' })
-        if (!res.ok) throw new Error('开始发车失败')
+        await apiOk(`/api/vehicles/${encodeURIComponent(String(item.vehicle_id))}/depart`, { method: 'POST' })
         updateLocalVehicle(item.vehicle_id, { vehicle_status: '运输中' })
         toast.add({ severity: 'success', summary: '成功', detail: '已开始发车', life: 1500 })
     } catch (e) {
@@ -213,8 +239,7 @@ async function departVehicle(item: FleetVehicle) {
 async function deliverVehicle(item: FleetVehicle) {
     dispatching.value = true
     try {
-        const res = await apiFetch(`/api/vehicles/${encodeURIComponent(String(item.vehicle_id))}/deliver`, { method: 'POST' })
-        if (!res.ok) throw new Error('确认送达失败')
+        await apiOk(`/api/vehicles/${encodeURIComponent(String(item.vehicle_id))}/deliver`, { method: 'POST' })
         updateLocalVehicle(item.vehicle_id, { vehicle_status: '空闲' })
         toast.add({ severity: 'success', summary: '成功', detail: '已确认送达', life: 1500 })
     } catch (e) {
@@ -288,23 +313,16 @@ async function createFleetDriver(item: Partial<Driver>) {
     if (!payload.person_name) throw new Error('请填写姓名')
     if (!payload.driver_license) throw new Error('请填写驾照等级')
 
-    const res = await apiFetch(`/api/fleets/${fleetId.value}/drivers`, {
+    await apiOk(`/api/fleets/${fleetId.value}/drivers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
     })
-    if (!res.ok) throw new Error('创建司机失败')
 }
 
 async function deleteFleetDriver(driver_id: Driver['person_id']) {
     if (!Number.isFinite(fleetId.value)) throw new Error('无效的车队ID')
-    const res = await apiFetch(`/api/drivers/${encodeURIComponent(String(driver_id))}`, {
-        method: 'DELETE',
-    })
-    if (!res.ok) {
-        const msg = await res.text().catch(() => '')
-        throw new Error(msg || '删除司机失败')
-    }
+    await apiOk(`/api/drivers/${encodeURIComponent(normalizeDriverPid(driver_id))}`, { method: 'DELETE' })
 }
 
 async function updateFleetDriver(driver_id: Driver['person_id'], updates: Partial<Driver>) {
@@ -317,15 +335,11 @@ async function updateFleetDriver(driver_id: Driver['person_id'], updates: Partia
     if (!payload.person_name) throw new Error('请填写姓名')
     if (!payload.driver_license) throw new Error('请填写驾照等级')
 
-    const res = await apiFetch(`/api/drivers/${encodeURIComponent(String(driver_id))}`, {
+    await apiOk(`/api/drivers/${encodeURIComponent(normalizeDriverPid(driver_id))}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
     })
-    if (!res.ok) {
-        const msg = await res.text().catch(() => '')
-        throw new Error(msg || '更新司机失败')
-    }
 }
 
 async function createFleetVehicle(item: Partial<Vehicle>) {
@@ -334,34 +348,29 @@ async function createFleetVehicle(item: Partial<Vehicle>) {
     if (!vehicle_regex.test(String(item.vehicle_id))) {
         throw new Error(`无效的车牌号格式: ${item.vehicle_id}。示例: 京A12345、沪B6789挂`)
     }
-    const res = await apiFetch(`/api/fleets/${fleetId.value}/vehicles`, {
+    await apiOk(`/api/fleets/${fleetId.value}/vehicles`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...item, fleet_id: fleetId.value }),
     })
-    if (!res.ok) throw new Error('创建车辆失败')
 }
 
 async function updateFleetVehicle(vehicle_id: Vehicle['vehicle_id'], updates: Partial<Vehicle>) {
     // 直接调用车辆通用更新接口
-    const res = await apiFetch(`/api/vehicles/${encodeURIComponent(String(vehicle_id))}`,
+    await apiOk(`/api/vehicles/${encodeURIComponent(String(vehicle_id))}`,
         {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates),
         }
     )
-    if (!res.ok) throw new Error('更新车队车辆失败')
 }
 
 async function assignVehicleDriver(vehicle_id: Vehicle['vehicle_id'], driver_id: string | null) {
     const base = `/api/vehicles/${encodeURIComponent(String(vehicle_id))}/driver`
     const url = driver_id ? `${base}?driver_id=${encodeURIComponent(driver_id)}` : base
-    const res = await apiFetch(url, { method: 'POST' })
-    if (!res.ok) {
-        const msg = await res.text().catch(() => '')
-        throw new Error(msg || '分配司机失败')
-    }
+    // 后端接口：PATCH /api/vehicles/{vehicle_id}/driver?driver_id=D1 （不传 driver_id 表示解绑）
+    await apiOk(url, { method: 'PATCH' })
 }
 
 async function assignDriverToVehicle() {
@@ -375,7 +384,7 @@ async function assignDriverToVehicle() {
 
     assigning.value = true
     try {
-        const driverId = String(d.person_id ?? '')
+        const driverId = normalizeDriverPid(d.person_id)
         await assignVehicleDriver(v.vehicle_id, driverId)
         const driverNumeric = Number.parseInt(driverId.replace(/^D/i, ''), 10)
         updateLocalVehicle(v.vehicle_id, {
@@ -406,8 +415,7 @@ async function unassignDriverFromVehicle(item: FleetVehicle) {
 
 async function detachFleetVehicle(vehicle_id: Vehicle['vehicle_id']) {
     // 车队内“删除车辆”：删除车辆记录
-    const res = await apiFetch(`/api/vehicles/${encodeURIComponent(String(vehicle_id))}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('删除车辆失败')
+    await apiOk(`/api/vehicles/${encodeURIComponent(String(vehicle_id))}`, { method: 'DELETE' })
 }
 
 const createFleetDriverColumns: readonly Columns[] = [
