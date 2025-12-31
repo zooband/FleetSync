@@ -113,10 +113,48 @@ def delete_vehicle(vehicle_id: str):
     # TODO: 实现此接口
 
 
-@router.get("/api/distribution-centers/{center_id}/vehicle-resources", response_model=Vehicle)
+# 定义一个新的返回模型，匹配前端的 data.available 和 data.unavailable
+class CenterVehicleResourcesResponse(BaseModel):
+    available: list[Vehicle]
+    unavailable: list[Vehicle]
+
+@router.get("/api/distribution-centers/{center_id}/vehicle-resources", response_model=CenterVehicleResourcesResponse)
 def get_vehicles_of_center(center_id: int, auth_info=Depends(require_admin), conn=Depends(get_db)):
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="此接口尚未实现")
-    # TODO: 实现此接口
+    try:
+        cursor = conn.cursor()
+        query = """
+            SELECT 
+                rs.vehicle_id,
+                rs.max_weight AS vehicle_load_capacity,
+                rs.max_volume AS vehicle_volume_capacity,
+                rs.remaining_weight AS remaining_load_capacity,
+                rs.remaining_volume AS remaining_volume_capacity,
+                v.vehicle_status,
+                v.fleet_id
+            FROM View_VehicleResourceStatus rs
+            JOIN Vehicles v ON rs.vehicle_id = v.vehicle_id
+            JOIN Fleets f ON v.fleet_id = f.fleet_id
+            WHERE f.center_id = %s AND v.is_deleted = 0
+        """
+        cursor.execute(query, (center_id,))
+        rows = cursor.fetchall()
+        
+        all_vehicles = [Vehicle(**r) for r in rows]
+
+        # 核心逻辑：根据业务规则分类 
+        # “可用”：状态为空闲 [cite: 32]
+        # “不可用”：状态为异常、维修中或满载（剩余载重 <= 0）
+        available = [v for v in all_vehicles if v.vehicle_status == '空闲' and (v.remaining_load_capacity or 0) > 0]
+        unavailable = [v for v in all_vehicles if v not in available]
+
+        return {
+            "available": available,
+            "unavailable": unavailable
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 
 
 @router.get("/api/fleets/{fleet_id}/vehicles")
