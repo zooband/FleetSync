@@ -79,9 +79,6 @@ def update_driver(driver_id: str, updates: DriverUpdate, auth_info=Depends(requi
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到司机记录")
         conn.commit()
         return {"detail": "司机信息更新成功"}
-    except HTTPException:
-        conn.rollback()
-        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"更新司机失败: {e}") from e
