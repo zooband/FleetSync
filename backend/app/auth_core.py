@@ -46,6 +46,28 @@ def _extract_int_segment(path: str, idx: int) -> int | None:
     return int(raw)
 
 
+def _normalize_int_id(value: Any) -> int | None:
+    """支持 int / '123' / 'D123' 形式的 ID 解析为 int。"""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return int(s)
+    # 兼容前端常用的 D 前缀
+    d = _parse_prefixed_person_id(s, "D")
+    if d is not None:
+        return d
+    # 兼容 M 前缀（如果有）
+    m = _parse_prefixed_person_id(s, "M")
+    if m is not None:
+        return m
+    return None
+
+
 def is_allowed(path: str, session: dict[str, Any]) -> bool:
     role = session.get("role")
 
@@ -53,19 +75,23 @@ def is_allowed(path: str, session: dict[str, Any]) -> bool:
         return True
 
     if role == "staff":
+        self_id = _normalize_int_id(session.get("personnel_id"))
         # 司机仅允许查询自己的绩效与个人相关信息
         if path.startswith("/api/personnels/"):
-            pid = _extract_int_segment(path, 3)
-            return pid is not None and pid == session.get("personnel_id")
+            segs = path.split("/")
+            pid = _normalize_int_id(segs[3] if len(segs) > 3 else None)
+            return pid is not None and self_id is not None and pid == self_id
 
         if path.startswith("/api/drivers/"):
             # /api/drivers/{person_id}/orders 或 /api/drivers/{person_id}/incidents
-            pid = _extract_int_segment(path, 3)
-            return pid is not None and pid == session.get("personnel_id")
+            segs = path.split("/")
+            pid = _normalize_int_id(segs[3] if len(segs) > 3 else None)
+            return pid is not None and self_id is not None and pid == self_id
 
         return False
 
     if role == "manager":
+        self_id = _normalize_int_id(session.get("personnel_id"))
         if path.startswith("/api/fleets/"):
             fid = _extract_int_segment(path, 3)
             return fid is not None and fid == session.get("fleet_id")
@@ -82,6 +108,11 @@ def is_allowed(path: str, session: dict[str, Any]) -> bool:
             return True
         if path.startswith("/api/vehicles"):
             return True
+        # 允许主管访问自己的主管信息：/api/managers/{person_id}
+        if path.startswith("/api/managers/"):
+            segs = path.split("/")
+            mid = _normalize_int_id(segs[3] if len(segs) > 3 else None)
+            return mid is not None and self_id is not None and mid == self_id
         # 允许主管访问通用司机搜索接口，具体范围在路由中按车队限制
         if path.startswith("/api/drivers"):
             return True
@@ -178,7 +209,7 @@ def _parse_prefixed_person_id(value: str, prefix: str) -> int | None:
 
 
 def require_admin_manager_or_driver_self(
-    person_id: str,
+    person_id: str | int,
     auth_info: dict[str, Any] = Depends(require_authenticated),
     conn=Depends(get_db),
 ) -> dict[str, Any]:
@@ -186,14 +217,20 @@ def require_admin_manager_or_driver_self(
     if role == "admin":
         return auth_info
 
-    if role == "staff" and auth_info.get("personnel_id") == person_id:
-        return auth_info
+    pid = _normalize_int_id(person_id)
+    if pid is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="person_id 格式错误，应为数字或 D+数字（如 D1）")
+
+    if role == "staff":
+        self_id = _normalize_int_id(auth_info.get("personnel_id"))
+        if self_id is not None and self_id == pid:
+            return auth_info
 
     if role == "manager":
         cursor = conn.cursor()
         cursor.execute(
             "SELECT fleet_id FROM Drivers WHERE is_deleted = 0 AND person_id = %s",
-            (person_id,),
+            (pid,),
         )
         row = cursor.fetchone()
         if row and row.get("fleet_id") == auth_info.get("fleet_id"):

@@ -52,7 +52,10 @@ def get_manager_info(
     conn=Depends(get_db),
 ):
     cursor = conn.cursor()
-    cursor.execute("SELECT person_id, person_name, person_contact, fleet_id FROM Managers WHERE person_id = %s AND is_deleted = 0", (person_id.lstrip("M"),))
+    cursor.execute(
+        "SELECT 'M' + CAST(person_id AS NVARCHAR) AS person_id, person_name, person_contact, fleet_id FROM Managers WHERE person_id = %s AND is_deleted = 0",
+        (person_id.lstrip("M"),),
+    )
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到调度主管记录")
