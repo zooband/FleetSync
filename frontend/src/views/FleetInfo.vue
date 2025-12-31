@@ -39,8 +39,6 @@ type FleetDetail = {
 // 车队车辆列表的后端返回会附带额外字段（不在全局 Vehicle 类型里）
 type FleetVehicle = Vehicle & {
     driver_id: number | null
-    active_order_status?: string | null
-    active_order_id?: number | null
 }
 
 type VehicleLocalPatch = Partial<FleetVehicle> & { vehicle_id?: never }
@@ -157,11 +155,10 @@ function updateLocalDriver(driver_id: Driver['person_id'], patch: DriverLocalPat
     drivers.value[idx] = { ...current, ...patch }
 }
 
-async function toggleVehicleMaintenance(item: FleetVehicle) {
+async function toggleVehicleMaintenance(item: Vehicle) {
     // 仅允许在 空闲/维修中 之间切换
     const current = String(item.vehicle_status ?? '')
-    const active = String(item.active_order_status ?? '')
-    if (current === '运输中' || active === '运输中' || active === '装货中') {
+    if (current === '运输中' || current === '装货中') {
         toast.add({ severity: 'warn', summary: '提示', detail: '车辆存在进行中的运单，无法切换维修状态', life: 1500 })
         return
     }
@@ -204,7 +201,7 @@ async function departVehicle(item: FleetVehicle) {
     try {
         const res = await apiFetch(`/api/vehicles/${encodeURIComponent(String(item.vehicle_id))}/depart`, { method: 'POST' })
         if (!res.ok) throw new Error('开始发车失败')
-        updateLocalVehicle(item.vehicle_id, { active_order_status: '运输中', vehicle_status: '运输中' })
+        updateLocalVehicle(item.vehicle_id, { vehicle_status: '运输中' })
         toast.add({ severity: 'success', summary: '成功', detail: '已开始发车', life: 1500 })
     } catch (e) {
         toast.add({ severity: 'error', summary: '错误', detail: (e as Error).message || '操作失败' })
@@ -218,7 +215,7 @@ async function deliverVehicle(item: FleetVehicle) {
     try {
         const res = await apiFetch(`/api/vehicles/${encodeURIComponent(String(item.vehicle_id))}/deliver`, { method: 'POST' })
         if (!res.ok) throw new Error('确认送达失败')
-        updateLocalVehicle(item.vehicle_id, { active_order_status: null, active_order_id: null, vehicle_status: '空闲' })
+        updateLocalVehicle(item.vehicle_id, { vehicle_status: '空闲' })
         toast.add({ severity: 'success', summary: '成功', detail: '已确认送达', life: 1500 })
     } catch (e) {
         toast.add({ severity: 'error', summary: '错误', detail: (e as Error).message || '操作失败' })
@@ -527,12 +524,12 @@ if (reportMonth.value == null) {
             :allowCreate="!isManagerReadonly" :allowEdit="!isManagerReadonly" :allowDelete="!isManagerReadonly">
             <template #cardActions="{ item }">
                 <PrimeButton v-if="isOperator" size="small" severity="secondary"
-                    :label="(item as FleetVehicle).vehicle_status === '维修中' ? '结束维护' : '维护模式'"
-                    @click.stop="toggleVehicleMaintenance(item as FleetVehicle)" />
-                <PrimeButton v-if="(item as FleetVehicle).active_order_status === '装货中'" size="small" severity="success"
+                    :label="(item as Vehicle).vehicle_status === '维修中' ? '结束维护' : '维护模式'"
+                    @click.stop="toggleVehicleMaintenance(item as Vehicle)" />
+                <PrimeButton v-if="(item as Vehicle).vehicle_status === '装货中'" size="small" severity="success"
                     label="开始发车" :loading="dispatching" :disabled="(item as FleetVehicle).driver_id == null"
                     @click.stop="departVehicle(item as FleetVehicle)" />
-                <PrimeButton v-else-if="(item as FleetVehicle).active_order_status === '运输中'" size="small"
+                <PrimeButton v-else-if="(item as Vehicle).vehicle_status === '运输中'" size="small"
                     severity="success" label="确认送达" :loading="dispatching" @click.stop="deliverVehicle(item as FleetVehicle)" />
                 <PrimeButton v-if="(item as FleetVehicle).driver_id == null" size="small" label="分配司机"
                     @click.stop="openAssignDriver(item as FleetVehicle)" />

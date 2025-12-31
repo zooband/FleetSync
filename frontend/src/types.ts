@@ -113,7 +113,7 @@ const VehicleSchema = [
         key: 'vehicle_status',
         label: '状态',
         type: 'select',
-        options: ['空闲', '运输中', '维修中'],
+        options: ['空闲', '装货中','运输中', '维修中'],
         editable: false,
         required: false,
     },

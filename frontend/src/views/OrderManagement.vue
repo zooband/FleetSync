@@ -111,7 +111,7 @@ async function createOrder(order: Partial<Order>) {
 
 async function cancelOrder(orderId: number) {
     const res = await apiFetch(`/api/orders/${orderId}`, {
-        method: 'PATCH',
+        method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: '已取消' }),
     })
@@ -122,7 +122,7 @@ async function assignVehicle(orderId: number, vehicleId: string) {
     const res = await apiFetch(`/api/orders/${orderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vehicle_id: vehicleId, status: '装货中' }),
+        body: JSON.stringify({ vehicle_id: vehicleId }),
     })
     if (!res.ok) {
         let msg = '转为装货中失败'
