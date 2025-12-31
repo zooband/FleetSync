@@ -1,5 +1,3 @@
-from datetime import date
-
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel
 
@@ -11,10 +9,10 @@ router = APIRouter()
 
 class Vehicle(BaseModel):
     vehicle_id: str
-    vehicle_load_capacity: float
-    vehicle_volume_capacity: float
-    remaining_load_capacity: float | None = None
-    remaining_volume_capacity: float | None = None
+    max_weight: float
+    max_volume: float
+    remaining_weight: float | None = None
+    remaining_volume: float | None = None
     vehicle_status: str
     fleet_id: int | None = None
     driver_name: str | None = None
@@ -25,19 +23,16 @@ class VehiclesSelect(BaseModel):
     total: int
 
 
-class VehicleUpdate(Vehicle):
-    driver_name: str | None = None
-    fleet_name: str | None = None
-    remaining_load_capacity: float | None = None
-    remaining_volume_capacity: float | None = None
-    active_order_id: int | None = None
-    active_order_status: str | None = None
+class VehicleUpdate(BaseModel):
+    vehicle_id: str | None = None
+    max_weight: float | None = None
+    max_volume: float | None = None
 
 
 class VehicleCreate(BaseModel):
     vehicle_id: str
-    vehicle_load_capacity: float
-    vehicle_volume_capacity: float
+    max_weight: float
+    max_volume: float
     fleet_id: int | None = None
 
 
@@ -54,18 +49,31 @@ def insert_vehicle(fleet_id: int, vehicle: VehicleCreate, auth_info=Depends(requ
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"找不到ID为 {fleet_id} 的车队")
 
         cursor.execute(
-            "INSERT INTO Vehicles (vehicle_id, max_weight, max_volume, vehicle_status, fleet_id) VALUES (%s, %s, %s, %s, %s);",
-            (vehicle.vehicle_id, vehicle.vehicle_load_capacity, vehicle.vehicle_volume_capacity, "空闲", fleet_id),
+            "SELECT 1 FROM Vehicles WHERE vehicle_id = %s AND is_deleted = 0",
+            (vehicle.vehicle_id,),
         )
+        if cursor.fetchone() is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"车辆ID {vehicle.vehicle_id} 已存在，无法重复创建")
+
+        cursor.execute("""
+            MERGE Vehicles AS target
+            USING (SELECT %s AS vehicle_id, %s AS max_weight, %s AS max_volume, %s AS vehicle_status, %s AS fleet_id) AS source
+            ON target.vehicle_id = source.vehicle_id
+            WHEN MATCHED AND target.is_deleted = 1 THEN
+                UPDATE SET
+                    max_weight = source.max_weight,
+                    max_volume = source.max_volume,
+                    vehicle_status = source.vehicle_status,
+                    fleet_id = source.fleet_id,
+                    is_deleted = 0
+            WHEN NOT MATCHED THEN
+                INSERT (vehicle_id, max_weight, max_volume, vehicle_status, fleet_id, is_deleted)
+                VALUES (source.vehicle_id, source.max_weight, source.max_volume, source.vehicle_status, source.fleet_id, 0);
+        """, (vehicle.vehicle_id, vehicle.max_weight, vehicle.max_volume, "空闲", fleet_id))
         conn.commit()
         return {"detail": "车辆创建成功", "vehicle_id": vehicle.vehicle_id}
     except Exception as e:
         conn.rollback()
-        if hasattr(e, 'args') and len(e.args) > 0 and "2627" in str(e.args[0]):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"车辆 ID '{vehicle.vehicle_id}' 已存在"
-            )
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"创建车辆失败: {e}") from e
 
 
@@ -97,7 +105,7 @@ def get_vehicle(
     conn=Depends(get_db),
 ):
     cursor = conn.cursor()
-    cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, vehicle_status, fleet_id, driver_id FROM Vehicles WHERE vehicle_id = %s AND is_deleted = 0", (vehicle_id,))
+    cursor.execute("SELECT vehicle_id, max_weight, max_volume, vehicle_status, fleet_id, driver_id FROM Vehicles WHERE vehicle_id = %s AND is_deleted = 0", (vehicle_id,))
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录")
@@ -124,9 +132,6 @@ def depart_vehicle(vehicle_id: str, auth_info=Depends(require_admin_or_vehicle_f
 
 @router.delete("/api/vehicles/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_vehicle(vehicle_id: str, auth_info=Depends(require_admin), conn=Depends(get_db)):
-    # raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="此接口尚未实现")
-    # # T: 实现此接口
-    # 逻辑删除车辆
     try:
         cursor = conn.cursor()
         cursor.execute("UPDATE Vehicles SET is_deleted = 1 WHERE vehicle_id = %s", (vehicle_id,))
@@ -152,10 +157,10 @@ def get_vehicles_of_center(center_id: int, auth_info=Depends(require_admin), con
         query = """
             SELECT 
                 rs.vehicle_id,
-                rs.max_weight AS vehicle_load_capacity,
-                rs.max_volume AS vehicle_volume_capacity,
-                rs.remaining_weight AS remaining_load_capacity,
-                rs.remaining_volume AS remaining_volume_capacity,
+                rs.max_weight,
+                rs.max_volume,
+                rs.remaining_weight,
+                rs.remaining_volume,
                 v.vehicle_status,
                 v.fleet_id
             FROM View_VehicleResourceStatus rs
@@ -171,7 +176,7 @@ def get_vehicles_of_center(center_id: int, auth_info=Depends(require_admin), con
         # 核心逻辑：根据业务规则分类 
         # “可用”：状态为空闲 [cite: 32]
         # “不可用”：状态为异常、维修中或满载（剩余载重 <= 0）
-        available = [v for v in all_vehicles if v.vehicle_status == '空闲' and (v.remaining_load_capacity or 0) > 0]
+        available = [v for v in all_vehicles if v.vehicle_status == '空闲' and (v.remaining_weight or 0) > 0]
         unavailable = [v for v in all_vehicles if v not in available]
 
         return {
@@ -197,7 +202,7 @@ def get_vehicles_of_fleet(
     cursor.execute("SELECT COUNT(*) AS total FROM View_VehicleResourceStatus WHERE fleet_id = %s AND (vehicle_id LIKE %s)", (fleet_id, f"%{q}%"))
     total = cursor.fetchone()["total"]
 
-    cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, remaining_weight AS remaining_load_capacity, remaining_volume AS remaining_volume_capacity, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE fleet_id = %s AND (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (fleet_id, f"%{q}%", offset, limit))
+    cursor.execute("SELECT vehicle_id, max_weight, max_volume, remaining_weight, remaining_volume, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE fleet_id = %s AND (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (fleet_id, f"%{q}%", offset, limit))
     rows = cursor.fetchall()
     data = [Vehicle(**r) for r in rows]
 
@@ -216,7 +221,7 @@ def get_vehicles(
     cursor.execute("SELECT COUNT(*) AS total FROM View_VehicleResourceStatus WHERE (vehicle_id LIKE %s)", (f"%{q}%",))
     total = cursor.fetchone()["total"]
 
-    cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, remaining_weight AS remaining_load_capacity, remaining_volume AS remaining_volume_capacity, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (f"%{q}%", offset, limit))
+    cursor.execute("SELECT vehicle_id, max_weight, max_volume, remaining_weight, remaining_volume, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (f"%{q}%", offset, limit))
     rows = cursor.fetchall()
     data = [Vehicle(**r) for r in rows]
 

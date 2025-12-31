@@ -193,37 +193,49 @@ def delete_incident(
 @router.get("/api/drivers/{person_id}/incidents", response_model=IncidentSelect)
 def get_driver_incidents(
     person_id: str,
-    start: str | None = Query(None), # 起始日期YYYY-MM-DD
-    end: str | None = Query(None), # 结束日期YYYY-MM-DD
+    start: str | None = Query(None),
+    end: str | None = Query(None),
     limit: int = Query(10, ge=1),
     offset: int = Query(0, ge=0),
     auth_info=Depends(require_admin_manager_or_driver_self),
     conn=Depends(get_db)
 ):
-    cursor = conn.cursor()
+    cursor = conn.cursor(as_dict=True)
     driver_id = person_id.lstrip("D")
-    cursor.execute(
-        "SELECT COUNT(*) AS total FROM Incidents WHERE driver_id = %s AND is_deleted = 0"
-        + (" AND occurrence_time >= %s" if start else "")
-        + (" AND occurrence_time <= %s" if end else ""),
-        tuple(
-            arg
-            for arg in [driver_id, start, end]
-            if arg is not None
-        ),
-    )
+
+    # 构建 WHERE 条件和参数
+    where_clauses = ["driver_id = %s", "is_deleted = 0"]
+    params = [driver_id]
+
+    if start:
+        where_clauses.append("occurrence_time >= %s")
+        params.append(start)
+    if end:
+        where_clauses.append("occurrence_time <= %s")
+        params.append(end)
+
+    where_sql = " AND ".join(where_clauses)
+
+    # COUNT 查询
+    cursor.execute(f"SELECT COUNT(*) AS total FROM Incidents WHERE {where_sql}", params)
     total = cursor.fetchone()["total"]
 
+    # 分页查询：注意 offset 和 limit 必须是最后两个参数
+    params_with_pagination = params + [offset, limit]
     cursor.execute(
-        "SELECT incident_id, driver_id, vehicle_id, occurrence_time AS timestamp, incident_type AS type, fine_amount, incident_description AS description, handle_status AS status FROM Incidents WHERE driver_id = %s AND is_deleted = 0"
-        + (" AND occurrence_time >= %s" if start else "")
-        + (" AND occurrence_time <= %s" if end else "")
-        + " ORDER BY incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
-        tuple(
-            arg
-            for arg in [driver_id, start, end, offset, limit]
-            if arg is not None
-        ),
+        f"""
+        SELECT incident_id, driver_id, vehicle_id, 
+               occurrence_time AS timestamp, 
+               incident_type AS type, 
+               fine_amount, 
+               incident_description AS description, 
+               handle_status AS status 
+        FROM Incidents 
+        WHERE {where_sql}
+        ORDER BY incident_id 
+        OFFSET %s ROWS FETCH NEXT %s ROWS ONLY
+        """,
+        params_with_pagination
     )
     rows = cursor.fetchall()
     data = [Incident(**r) for r in rows]

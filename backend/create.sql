@@ -12,14 +12,14 @@ GO
 
 USE FleetSync
 
--- ≈‰ÀÕ÷––ƒ±Ì
+-- ÈÖçÈÄÅ‰∏≠ÂøÉË°®
 CREATE TABLE DistributionCenters (
     center_id INT PRIMARY KEY IDENTITY(1,1),
     center_name NVARCHAR(50) NOT NULL,
     is_deleted BIT DEFAULT 0 NOT NULL,
 );
 
--- ≥µ∂”±Ì
+-- ËΩ¶ÈòüË°®
 CREATE TABLE Fleets (
     fleet_id INT PRIMARY KEY IDENTITY(1,1),
     fleet_name NVARCHAR(50) NOT NULL,
@@ -28,19 +28,19 @@ CREATE TABLE Fleets (
     CONSTRAINT FK_Fleets_Centers FOREIGN KEY (center_id) REFERENCES DistributionCenters(center_id)
 );
 
--- Àæª˙±Ì
+-- Âè∏Êú∫Ë°®
 CREATE TABLE Drivers (
     person_id INT PRIMARY KEY IDENTITY(1,1),
     person_name NVARCHAR(50) NOT NULL,
     person_contact NVARCHAR(50),
     driver_license CHAR(2) NOT NULL CHECK (driver_license IN ('A2', 'B2', 'C1', 'C2', 'C3', 'C4', 'C6')),
-    driver_status NCHAR(3) DEFAULT 'ø’œ–' CHECK (driver_status IN ('ø’œ–', '‘À ‰÷–', '–›œ¢÷–')) NOT NULL,
+    driver_status NCHAR(3) DEFAULT 'Á©∫Èó≤' CHECK (driver_status IN ('Á©∫Èó≤', 'ËøêËæì‰∏≠', '‰ºëÊÅØ‰∏≠')) NOT NULL,
     fleet_id INT NOT NULL,
     is_deleted BIT DEFAULT 0 NOT NULL,
     CONSTRAINT FK_Drivers_Fleets FOREIGN KEY (fleet_id) REFERENCES Fleets(fleet_id)
 );
 
--- ÷˜π‹±Ì
+-- ‰∏ªÁÆ°Ë°®
 CREATE TABLE Managers (
     person_id INT PRIMARY KEY IDENTITY(1,1),
     person_name NVARCHAR(20) NOT NULL,
@@ -50,31 +50,31 @@ CREATE TABLE Managers (
     CONSTRAINT FK_Managers_Fleets FOREIGN KEY (fleet_id) REFERENCES Fleets(fleet_id)
 );
 
--- ≥µ¡æ±Ì
+-- ËΩ¶ËæÜË°®
 CREATE TABLE Vehicles (
     vehicle_id NVARCHAR(10) PRIMARY KEY,
     max_weight DECIMAL(10,2) NOT NULL,
     max_volume DECIMAL(10,2) NOT NULL,
-    vehicle_status NVARCHAR(10) DEFAULT 'ø’œ–' CHECK (vehicle_status IN ('ø’œ–', '‘À ‰÷–', 'Œ¨–ﬁ÷–', '“Ï≥£')) NOT NULL,
+    vehicle_status NVARCHAR(10) DEFAULT 'Á©∫Èó≤' CHECK (vehicle_status IN ('Á©∫Èó≤', 'Ë£ÖË¥ß‰∏≠', 'ËøêËæì‰∏≠', 'Áª¥‰øÆ‰∏≠', 'ÂºÇÂ∏∏')) NOT NULL,
     fleet_id INT NOT NULL,
     is_deleted BIT DEFAULT 0 NOT NULL,
     CONSTRAINT FK_Vehicles_Fleets FOREIGN KEY (fleet_id) REFERENCES Fleets(fleet_id)
 );
 
--- ‘Àµ•±Ì
+-- ËøêÂçïË°®
 CREATE TABLE Orders (
     order_id INT PRIMARY KEY IDENTITY(1,1),
     weight DECIMAL(10,2) NOT NULL,
     volume DECIMAL(10,2) NOT NULL,
     origin NVARCHAR(100) NOT NULL,
     destination NVARCHAR(100) NOT NULL,
-    order_status NCHAR(3) DEFAULT '¥˝¥¶¿Ì' CHECK (order_status IN ('¥˝¥¶¿Ì', '◊∞ªı÷–', '‘À ‰÷–', '“—ÕÍ≥…', '“—»°œ˚')) NOT NULL,
+    order_status NCHAR(3) DEFAULT 'ÂæÖÂ§ÑÁêÜ' CHECK (order_status IN ('ÂæÖÂ§ÑÁêÜ', 'Ë£ÖË¥ß‰∏≠', 'ËøêËæì‰∏≠', 'Â∑≤ÂÆåÊàê', 'Â∑≤ÂèñÊ∂à')) NOT NULL,
     vehicle_id NVARCHAR(10),
     is_deleted BIT DEFAULT 0 NOT NULL,
     CONSTRAINT FK_Orders_Vehicles FOREIGN KEY (vehicle_id) REFERENCES Vehicles(vehicle_id)
 );
 
--- “Ï≥£º«¬º±Ì
+-- ÂºÇÂ∏∏ËÆ∞ÂΩïË°®
 CREATE TABLE Incidents (
     incident_id INT PRIMARY KEY IDENTITY(1,1),
     vehicle_id NVARCHAR(10) NOT NULL,
@@ -82,14 +82,14 @@ CREATE TABLE Incidents (
     incident_type NVARCHAR(20) NOT NULL,
     incident_description NVARCHAR(255) NOT NULL,
     fine_amount DECIMAL(10,2) DEFAULT 0.00 NOT NULL,
-    handle_status NCHAR(3) DEFAULT 'Œ¥¥¶¿Ì' CHECK (handle_status IN ('“—¥¶¿Ì', 'Œ¥¥¶¿Ì')) NOT NULL,
-    occurrence_time DATETIME DEFAULT GETDATE() NOT NULL,
+    handle_status NCHAR(3) DEFAULT 'Êú™Â§ÑÁêÜ' CHECK (handle_status IN ('Â∑≤Â§ÑÁêÜ', 'Êú™Â§ÑÁêÜ')) NOT NULL,
+    occurrence_time DATE NOT NULL,
     is_deleted BIT DEFAULT 0 NOT NULL,
     CONSTRAINT FK_Incidents_Vehicles FOREIGN KEY (vehicle_id) REFERENCES Vehicles(vehicle_id),
     CONSTRAINT FK_Incidents_Drivers FOREIGN KEY (driver_id) REFERENCES Drivers(person_id)
 );
 
--- …Ûº∆»’÷æ±Ì
+-- ÂÆ°ËÆ°Êó•ÂøóË°®
 CREATE TABLE History_Log (
     log_id INT PRIMARY KEY IDENTITY(1,1),
     table_name NVARCHAR(20),
@@ -109,26 +109,6 @@ create table Assignments(
 CREATE TABLE CompletedOrder (
     order_id INT NOT NULL,
     person_id INT NOT NULL,
+    completed_at DATE NOT NULL,
     CONSTRAINT FK_CompletedOrder_Orders FOREIGN KEY (order_id) REFERENCES Orders(order_id)
 );
-
-GO
-CREATE VIEW View_VehicleResourceStatus AS
-SELECT 
-    v.vehicle_id,
-    v.max_weight,
-    v.max_volume,
-    ISNULL(SUM(CASE WHEN o.order_status NOT IN ('“—»°œ˚', '“—ÕÍ≥…', '¥˝¥¶¿Ì') THEN o.weight ELSE 0 END), 0) AS used_weight,
-    ISNULL(SUM(CASE WHEN o.order_status NOT IN ('“—»°œ˚', '“—ÕÍ≥…', '¥˝¥¶¿Ì') THEN o.volume ELSE 0 END), 0) AS used_volume,
-    v.max_weight - ISNULL(SUM(CASE WHEN o.order_status NOT IN ('“—»°œ˚', '“—ÕÍ≥…', '¥˝¥¶¿Ì') THEN o.weight ELSE 0 END), 0) AS remaining_weight,
-    v.max_volume - ISNULL(SUM(CASE WHEN o.order_status NOT IN ('“—»°œ˚', '“—ÕÍ≥…', '¥˝¥¶¿Ì') THEN o.volume ELSE 0 END), 0) AS remaining_volume,
-    v.fleet_id,
-    v.vehicle_status,
-    d.person_name AS driver_name
-FROM Vehicles v
-LEFT JOIN Orders o ON v.vehicle_id = o.vehicle_id
-LEFT JOIN Assignments a ON v.vehicle_id = a.vehicle_id
-LEFT JOIN Drivers d ON a.person_id = d.person_id
-WHERE v.is_deleted = 0
-GROUP BY v.vehicle_id, v.max_weight, v.max_volume, d.person_name, v.fleet_id, v.vehicle_status;
-GO

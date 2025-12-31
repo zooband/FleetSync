@@ -40,14 +40,6 @@ async function apiOk(input: string, init: RequestInit = {}): Promise<Response> {
     return res
 }
 
-function normalizeDriverPid(raw: unknown): string {
-    const s = String(raw ?? '').trim()
-    if (!s) return ''
-    if (/^D\d+$/i.test(s)) return `D${s.slice(1)}`
-    if (/^\d+$/.test(s)) return `D${s}`
-    return s
-}
-
 const route = useRoute()
 const router = useRouter()
 
@@ -71,10 +63,8 @@ type FleetDetail = {
     center_id: number
 }
 
-// 车队车辆列表的后端返回会附带额外字段（不在全局 Vehicle 类型里）
-type FleetVehicle = Vehicle & {
-    driver_id: number | null
-}
+// 车队车辆列表直接使用后端 Vehicle（包含 driver_name 字段）
+type FleetVehicle = Vehicle
 
 type VehicleLocalPatch = Partial<FleetVehicle> & { vehicle_id?: never }
 type DriverLocalPatch = Partial<Driver> & { person_id?: never }
@@ -139,7 +129,7 @@ async function fetchFleetDetail() {
 }
 
 function goToDriverDetail(item: { person_id: unknown }) {
-    router.push({ path: `/personnels/${normalizeDriverPid(item.person_id)}` })
+    router.push({ path: `/personnels/${item.person_id}` })
 }
 
 // 车牌号校验（与 VehicleInfo 保持一致）
@@ -207,7 +197,7 @@ async function toggleDriverLeave(item: Driver) {
     const current = String(item.driver_status ?? '')
     const nextStatus = current === '休息中' ? '空闲' : '休息中'
     try {
-        await apiOk(`/api/drivers/${encodeURIComponent(normalizeDriverPid(item.person_id))}`, {
+        await apiOk(`/api/drivers/${encodeURIComponent(item.person_id)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ driver_status: nextStatus }),
@@ -220,7 +210,7 @@ async function toggleDriverLeave(item: Driver) {
 }
 
 async function departVehicle(item: FleetVehicle) {
-    if (item.driver_id == null) {
+    if (!item.driver_name) {
         toast.add({ severity: 'warn', summary: '提示', detail: '请先为车辆分配司机', life: 1500 })
         return
     }
@@ -322,7 +312,7 @@ async function createFleetDriver(item: Partial<Driver>) {
 
 async function deleteFleetDriver(driver_id: Driver['person_id']) {
     if (!Number.isFinite(fleetId.value)) throw new Error('无效的车队ID')
-    await apiOk(`/api/drivers/${encodeURIComponent(normalizeDriverPid(driver_id))}`, { method: 'DELETE' })
+    await apiOk(`/api/drivers/${encodeURIComponent(driver_id)}`, { method: 'DELETE' })
 }
 
 async function updateFleetDriver(driver_id: Driver['person_id'], updates: Partial<Driver>) {
@@ -335,7 +325,7 @@ async function updateFleetDriver(driver_id: Driver['person_id'], updates: Partia
     if (!payload.person_name) throw new Error('请填写姓名')
     if (!payload.driver_license) throw new Error('请填写驾照等级')
 
-    await apiOk(`/api/drivers/${encodeURIComponent(normalizeDriverPid(driver_id))}`, {
+    await apiOk(`/api/drivers/${encodeURIComponent(driver_id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -369,8 +359,7 @@ async function updateFleetVehicle(vehicle_id: Vehicle['vehicle_id'], updates: Pa
 async function assignVehicleDriver(vehicle_id: Vehicle['vehicle_id'], driver_id: string | null) {
     const base = `/api/vehicles/${encodeURIComponent(String(vehicle_id))}/driver`
     const url = driver_id ? `${base}?driver_id=${encodeURIComponent(driver_id)}` : base
-    // 后端接口：PATCH /api/vehicles/{vehicle_id}/driver?driver_id=D1 （不传 driver_id 表示解绑）
-    await apiOk(url, { method: 'PATCH' })
+    await apiOk(url, { method: 'POST' })
 }
 
 async function assignDriverToVehicle() {
@@ -384,11 +373,10 @@ async function assignDriverToVehicle() {
 
     assigning.value = true
     try {
-        const driverId = normalizeDriverPid(d.person_id)
+        // 后端要求 driver_id 形如 D+数字，例如 D1
+        const driverId = `D${String(d.person_id)}`
         await assignVehicleDriver(v.vehicle_id, driverId)
-        const driverNumeric = Number.parseInt(driverId.replace(/^D/i, ''), 10)
         updateLocalVehicle(v.vehicle_id, {
-            driver_id: Number.isFinite(driverNumeric) ? driverNumeric : (v.driver_id ?? 0),
             driver_name: d.person_name ?? '',
         })
         assignDialogVisible.value = false
@@ -404,7 +392,7 @@ async function unassignDriverFromVehicle(item: FleetVehicle) {
     assigning.value = true
     try {
         await assignVehicleDriver(item.vehicle_id, null)
-        updateLocalVehicle(item.vehicle_id, { driver_id: null, driver_name: '' })
+        updateLocalVehicle(item.vehicle_id, { driver_name: '' })
         toast.add({ severity: 'success', summary: '成功', detail: '已取消分配', life: 1500 })
     } catch (e) {
         toast.add({ severity: 'error', summary: '错误', detail: (e as Error).message || '取消失败' })
@@ -550,11 +538,11 @@ if (reportMonth.value == null) {
                     :label="(item as Vehicle).vehicle_status === '维修中' ? '结束维护' : '维护模式'"
                     @click.stop="toggleVehicleMaintenance(item as Vehicle)" />
                 <PrimeButton v-if="(item as Vehicle).vehicle_status === '装货中'" size="small" severity="success"
-                    label="开始发车" :loading="dispatching" :disabled="(item as FleetVehicle).driver_id == null"
+                    label="开始发车" :loading="dispatching" :disabled="!(item as FleetVehicle).driver_name"
                     @click.stop="departVehicle(item as FleetVehicle)" />
                 <PrimeButton v-else-if="(item as Vehicle).vehicle_status === '运输中'" size="small"
                     severity="success" label="确认送达" :loading="dispatching" @click.stop="deliverVehicle(item as FleetVehicle)" />
-                <PrimeButton v-if="(item as FleetVehicle).driver_id == null" size="small" label="分配司机"
+                <PrimeButton v-if="!(item as FleetVehicle).driver_name" size="small" label="分配司机"
                     @click.stop="openAssignDriver(item as FleetVehicle)" />
                 <PrimeButton v-else size="small" severity="secondary" label="取消分配司机" :loading="assigning"
                     @click.stop="unassignDriverFromVehicle(item as FleetVehicle)" />

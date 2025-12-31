@@ -125,8 +125,8 @@ def cancel_order(order_id: int, conn=Depends(get_db)):
 @router.get("/api/drivers/{person_id}/orders", response_model=OrderSelect)
 def get_driver_finished_orders(
     person_id: int,
-    start: date | None = Query(None),
-    end: date | None = Query(None),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
     limit: int = Query(10, ge=1),
     offset: int = Query(0, ge=0),
     auth_info=Depends(require_admin_manager_or_driver_self),

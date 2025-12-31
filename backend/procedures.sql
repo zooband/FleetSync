@@ -1,3 +1,6 @@
+USE FleetSync;
+GO
+
 CREATE PROCEDURE GetFleetMonthlyPerformance
     @FleetID INT,
     @Year INT,

@@ -175,7 +175,7 @@ def _parse_prefixed_person_id(value: str, prefix: str) -> int | None:
 
 
 def require_admin_manager_or_driver_self(
-    person_id: int,
+    person_id: str,
     auth_info: dict[str, Any] = Depends(require_authenticated),
     conn=Depends(get_db),
 ) -> dict[str, Any]:

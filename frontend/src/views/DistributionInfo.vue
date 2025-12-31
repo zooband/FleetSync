@@ -85,8 +85,8 @@ const total = ref(0)
 
 type CenterAvailableVehicle = {
     vehicle_id: string
-    remaining_load_capacity: number
-    remaining_volume_capacity: number
+    remaining_weight: number
+    remaining_volume: number
 }
 
 type CenterUnavailableVehicle = {
@@ -260,8 +260,8 @@ watch(
                     <TabPanel value="available">
                         <DataTable :value="availableVehicles" :loading="vehicleResourcesLoading" removableSort>
                             <Column field="vehicle_id" header="车牌号" sortable />
-                            <Column field="remaining_load_capacity" header="剩余载重" sortable />
-                            <Column field="remaining_volume_capacity" header="剩余容积" sortable />
+                            <Column field="remaining_weight" header="剩余载重" sortable />
+                            <Column field="remaining_volume" header="剩余容积" sortable />
                         </DataTable>
                     </TabPanel>
 

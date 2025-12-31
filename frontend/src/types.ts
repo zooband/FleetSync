@@ -55,7 +55,7 @@ const normalizeField = (field: FieldDef) => ({
 })
 
 const PersonnelSchema = [
-    { key: 'person_id', label: '工号', type: 'number', isId: true, editable: false },
+    { key: 'person_id', label: '工号', type: 'text', isId: true, editable: false },
     { key: 'person_name', label: '姓名', type: 'text' },
     { key: 'person_contact', label: '联系方式', type: 'text', required: false },
 ] as const satisfies readonly FieldDef[]
@@ -93,17 +93,17 @@ const VehicleSchema = [
             labelKey: 'fleet_name',
         },
     },
-    { key: 'vehicle_load_capacity', label: '载重上限', type: 'number' },
-    { key: 'vehicle_volume_capacity', label: '容积上限', type: 'number' },
+    { key: 'max_weight', label: '载重上限', type: 'number' },
+    { key: 'max_volume', label: '容积上限', type: 'number' },
     {
-        key: 'remaining_load_capacity',
+        key: 'remaining_weight',
         label: '剩余载重',
         type: 'number',
         editable: false,
         required: false,
     },
     {
-        key: 'remaining_volume_capacity',
+        key: 'remaining_volume',
         label: '剩余容积',
         type: 'number',
         editable: false,
@@ -151,7 +151,7 @@ const IncidentSchema = [
         label: '关联司机',
         type: 'foreign',
         foreign: {
-            endpoint: '/api/personnels/drivers',
+            endpoint: '/api/drivers',
             valueKey: 'person_id',
             labelKey: 'person_name',
         },

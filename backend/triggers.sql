@@ -1,3 +1,6 @@
+USE FleetSync;
+GO
+
 CREATE TRIGGER trg_UpdateVehicleToLoading
 ON Orders
 AFTER UPDATE
@@ -48,7 +51,7 @@ BEGIN
         FROM deleted d;
     END
 END;
-GO;
+GO
 CREATE TRIGGER trg_IncidentHandle_UpdateVehicleStatus
 ON Incidents
 AFTER UPDATE
@@ -75,7 +78,7 @@ BEGIN
           AND v.vehicle_status = '异常'; -- 只有当前处于异常状态的车辆才执行此逻辑
     END
 END;
-GO;
+GO
 
 CREATE TRIGGER trg_CheckOverload
 ON Orders
@@ -97,7 +100,7 @@ BEGIN
         ROLLBACK TRANSACTION;
     END
 END;
-GO;
+GO
 
 CREATE TRIGGER trg_SyncOrderToTransit
 ON Vehicles
@@ -105,6 +108,10 @@ AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    -- 检查是否有实际的行被更新（排除虚拟更新）
+    IF NOT EXISTS (SELECT 1 FROM inserted) OR NOT EXISTS (SELECT 1 FROM deleted)
+        RETURN;
 
     -- 1. 检查是否更新了 vehicle_status 字段
     IF UPDATE(vehicle_status)
