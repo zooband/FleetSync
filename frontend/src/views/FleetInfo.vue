@@ -174,7 +174,7 @@ async function toggleVehicleMaintenance(item: Vehicle) {
 
 async function toggleDriverLeave(item: Driver) {
     const current = String(item.driver_status ?? '')
-    const nextStatus = current === '请假中' ? '空闲' : '请假中'
+    const nextStatus = current === '休息中' ? '空闲' : '休息中'
     try {
         const res = await apiFetch(`/api/drivers/${encodeURIComponent(String(item.person_id))}`, {
             method: 'PATCH',
@@ -354,6 +354,16 @@ async function updateFleetVehicle(vehicle_id: Vehicle['vehicle_id'], updates: Pa
     if (!res.ok) throw new Error('更新车队车辆失败')
 }
 
+async function assignVehicleDriver(vehicle_id: Vehicle['vehicle_id'], driver_id: string | null) {
+    const base = `/api/vehicles/${encodeURIComponent(String(vehicle_id))}/driver`
+    const url = driver_id ? `${base}?driver_id=${encodeURIComponent(driver_id)}` : base
+    const res = await apiFetch(url, { method: 'POST' })
+    if (!res.ok) {
+        const msg = await res.text().catch(() => '')
+        throw new Error(msg || '分配司机失败')
+    }
+}
+
 async function assignDriverToVehicle() {
     const v = assigningVehicle.value
     const d = selectedDriver.value
@@ -365,8 +375,13 @@ async function assignDriverToVehicle() {
 
     assigning.value = true
     try {
-        await updateFleetVehicle(v.vehicle_id, { driver_id: d.person_id } as unknown as Partial<Vehicle>)
-        updateLocalVehicle(v.vehicle_id, { driver_id: d.person_id, driver_name: d.person_name })
+        const driverId = String(d.person_id ?? '')
+        await assignVehicleDriver(v.vehicle_id, driverId)
+        const driverNumeric = Number.parseInt(driverId.replace(/^D/i, ''), 10)
+        updateLocalVehicle(v.vehicle_id, {
+            driver_id: Number.isFinite(driverNumeric) ? driverNumeric : (v.driver_id ?? 0),
+            driver_name: d.person_name ?? '',
+        })
         assignDialogVisible.value = false
         toast.add({ severity: 'success', summary: '成功', detail: '已分配司机', life: 1500 })
     } catch (e) {
@@ -379,7 +394,7 @@ async function assignDriverToVehicle() {
 async function unassignDriverFromVehicle(item: FleetVehicle) {
     assigning.value = true
     try {
-        await updateFleetVehicle(item.vehicle_id, { driver_id: null } as unknown as Partial<Vehicle>)
+        await assignVehicleDriver(item.vehicle_id, null)
         updateLocalVehicle(item.vehicle_id, { driver_id: null, driver_name: '' })
         toast.add({ severity: 'success', summary: '成功', detail: '已取消分配', life: 1500 })
     } catch (e) {
@@ -543,7 +558,7 @@ if (reportMonth.value == null) {
             :editColumns="editFleetDriverColumns" :allowEdit="isAdmin" :allowDelete="isAdmin" :click="goToDriverDetail">
             <template #cardActions="{ item }">
                 <PrimeButton v-if="isOperator" size="small" severity="secondary"
-                    :label="(item as Driver).driver_status === '请假中' ? '结束请假' : '标记请假中'"
+                    :label="(item as Driver).driver_status === '休息中' ? '结束休息' : '标记休息中'"
                     @click.stop="toggleDriverLeave(item as Driver)" />
             </template>
         </EntityCardBoard>

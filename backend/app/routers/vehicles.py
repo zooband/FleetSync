@@ -214,3 +214,50 @@ def get_vehicles(
 
     return VehiclesSelect(data=data, total=total)
 
+@router.post("/api/vehicles/{vehicle_id}/driver")
+def assign_or_free_driver_to_vehicle(
+    vehicle_id: str,
+    driver_id: str | None = Query(None, description="司机 ID，格式为 D+数字，如 D1；传入 null 表示解绑司机"),
+    auth_info=Depends(require_admin_or_vehicle_fleet_manager),
+    conn=Depends(get_db),
+):
+    cursor = conn.cursor(as_dict=False)
+
+    # 兼容 query 传空字符串（例如 ?driver_id= ）：按未传处理
+    driver_id = driver_id or None
+
+    if driver_id:
+        if not driver_id or driver_id[0].upper() != "D" or not driver_id[1:].isdigit():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="driver_id 格式错误，应为 D+数字（如 D1）")
+        driver_person_id = int(driver_id[1:])
+
+        cursor.execute("SELECT 1 FROM Assignments WHERE person_id = %s OR vehicle_id = %s", (driver_person_id, vehicle_id))
+        if cursor.fetchone() is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该司机或车辆已被分配，无法重复分配")
+
+        try:
+            cursor.execute(
+                "INSERT INTO Assignments (person_id, vehicle_id) VALUES (%s, %s)",
+                (driver_person_id, vehicle_id),
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到司机或车辆记录")
+            conn.commit()
+            return {"detail": "司机分配成功"}
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"分配司机失败: {e}") from e
+    else:
+        try:
+            cursor.execute(
+                "DELETE FROM Assignments WHERE vehicle_id = %s",
+                (vehicle_id,),
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录或车辆未分配司机")
+            conn.commit()
+            return {"detail": "司机解绑成功"}
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="解绑司机失败") from e
+

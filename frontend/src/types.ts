@@ -68,7 +68,7 @@ const DriverSchema = [
         type: 'select',
         options: ['A2', 'B2', 'C1', 'C2', 'C3', 'C4', 'C6'],
     },
-    { key: 'driver_status', label: '状态', type: 'text', editable: false }, // '空闲' | '运输中'
+    { key: 'driver_status', label: '状态', type: 'text', editable: false }, // '空闲' | '运输中' | '休息中'
     { key: 'fleet_name', label: '所属车队', type: 'text', editable: false },
     { key: 'vehicle_id', label: '驾驶车辆', type: 'text', editable: false, required: false },
 ] as const satisfies readonly FieldDef[]
