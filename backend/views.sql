@@ -44,4 +44,3 @@ WHERE
     DATEDIFF(week, i.occurrence_time, GETDATE()) = 0;
 
 GO
-

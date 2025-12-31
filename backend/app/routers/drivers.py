@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, status, Path
 from pydantic import BaseModel
 from fastapi import Depends
 from app.db import get_db
-from app.auth_core import require_admin, require_admin_or_fleet_manager, require_admin_manager_or_driver_self
+from app.auth_core import require_admin, require_admin_or_fleet_manager, require_admin_manager_or_driver_self, require_admin_or_manager
 
 router = APIRouter()
 
@@ -127,6 +127,42 @@ def list_fleet_drivers(
     cursor.execute(
         "SELECT 'D' + CAST(person_id AS NVARCHAR) AS person_id, person_name, driver_license, driver_status, person_contact, fleet_id FROM Drivers WHERE fleet_id = %s AND is_deleted = 0 AND (person_name LIKE %s OR person_contact LIKE %s) ORDER BY person_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
         (fleet_id, f"%{q}%", f"%{q}%", offset, limit),
+    )
+    rows = cursor.fetchall()
+    data = [Driver(**r) for r in rows]
+    return DriversSelect(data=data, total=total)
+
+@router.get("/api/drivers", response_model=DriversSelect)
+def list_drivers(
+    q: str | None = Query(""),
+    limit: int = Query(10, ge=1),
+    offset: int = Query(0, ge=0),
+    auth_info=Depends(require_admin_or_manager),
+    conn=Depends(get_db),
+):
+    """通用司机搜索：
+    - 管理员：查询全部司机
+    - 调度主管：仅查询所属车队的司机
+    返回的 `person_id` 为带前缀的形式如 `D1`
+    """
+    cursor = conn.cursor()
+
+    # 过滤条件：管理员不限制，主管限制到自己的车队
+    where_base = "FROM Drivers WHERE is_deleted = 0 AND (person_name LIKE %s OR person_contact LIKE %s)"
+    where_params = [f"%{q}%", f"%{q}%"]
+
+    role = auth_info.get("role")
+    fleet_id = auth_info.get("fleet_id")
+    if role == "manager":
+        where_base = "FROM Drivers WHERE is_deleted = 0 AND fleet_id = %s AND (person_name LIKE %s OR person_contact LIKE %s)"
+        where_params = [fleet_id, f"%{q}%", f"%{q}%"]
+
+    cursor.execute(f"SELECT COUNT(*) AS total {where_base}", tuple(where_params))
+    total = cursor.fetchone()["total"]
+
+    cursor.execute(
+        f"SELECT 'D' + CAST(person_id AS NVARCHAR) AS person_id, person_name, driver_license, driver_status, person_contact, fleet_id {where_base} ORDER BY person_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+        tuple(where_params + [offset, limit]),
     )
     rows = cursor.fetchall()
     data = [Driver(**r) for r in rows]

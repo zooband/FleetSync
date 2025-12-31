@@ -13,31 +13,31 @@ class Incident(BaseModel):
     incident_id: int
     driver_id: str
     vehicle_id: str
-    timestamp: date
-    type: str
+    occurrence_time: date
+    incident_type: str
     fine_amount: float
-    description: str
-    status: str
+    incident_description: str
+    handle_status: str
 
 
 class IncidentCreate(BaseModel):
     driver_id: str
     vehicle_id: str
-    timestamp: date
-    type: str
+    occurrence_time: date
+    incident_type: str
     fine_amount: float
-    description: str
-    status: str
+    incident_description: str
+    handle_status: str
 
 
 class IncidentUpdate(BaseModel):
-    driver_id: int | None = None
+    driver_id: str | None = None
     vehicle_id: str | None = None
-    timestamp: date | None = None
-    type: str | None = None
+    occurrence_time: date | None = None
+    incident_type: str | None = None
     fine_amount: float | None = None
-    description: str | None = None
-    status: str | None = None
+    incident_description: str | None = None
+    handle_status: str | None = None
 
 
 class IncidentSelect(BaseModel):
@@ -70,8 +70,16 @@ def insert_incident(
 
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO Incidents (vehicle_id, driver_id, incident_type, fine_amount, handle_status, occurrence_time) VALUES (%s, %s, %s, %s, %s, %s);",
-            (incident.vehicle_id, incident.driver_id.lstrip("D").lstrip("d"), incident.type, incident.fine_amount, incident.status, incident.timestamp),
+            "INSERT INTO Incidents (vehicle_id, driver_id, incident_type, fine_amount, incident_description, handle_status, occurrence_time) VALUES (%s, %s, %s, %s, %s, %s, %s);",
+            (
+                incident.vehicle_id,
+                incident.driver_id.lstrip("D").lstrip("d"),
+                incident.incident_type,
+                incident.fine_amount,
+                incident.incident_description,
+                incident.handle_status,
+                incident.occurrence_time,
+            ),
         )
         cursor.execute("SELECT SCOPE_IDENTITY() AS incident_id;")
         incident_id = int(cursor.fetchone()["incident_id"])
@@ -79,7 +87,7 @@ def insert_incident(
         return {"detail": "异常记录创建成功", "incident_id": incident_id}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="创建异常记录失败") from e
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"创建异常记录失败: {e}") from e
 
 
 @router.patch("/api/incidents/{incident_id}")
@@ -122,7 +130,7 @@ def update_incident(
         return {"detail": "异常记录更新成功"}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新异常记录失败") from e
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"更新异常记录失败: {e}") from e
 
 
 @router.get("/api/incidents", response_model=IncidentSelect)
@@ -142,8 +150,8 @@ def list_incidents(
         )
         total = cursor.fetchone()["total"]
         cursor.execute(
-            "SELECT i.incident_id, i.driver_id, i.vehicle_id, i.occurrence_time AS timestamp, i.incident_type AS type, "
-            "i.fine_amount, i.incident_description AS description, i.handle_status AS status "
+            "SELECT i.incident_id, 'D' + CAST(i.driver_id AS NVARCHAR) AS driver_id, i.vehicle_id, i.occurrence_time, i.incident_type, "
+            "i.fine_amount, i.incident_description, i.handle_status AS handle_status "
             "FROM Incidents i JOIN Vehicles v ON i.vehicle_id = v.vehicle_id "
             "WHERE i.is_deleted = 0 AND v.is_deleted = 0 AND v.fleet_id = %s "
             "ORDER BY i.incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
@@ -153,7 +161,7 @@ def list_incidents(
         cursor.execute("SELECT COUNT(*) AS total FROM Incidents WHERE is_deleted = 0")
         total = cursor.fetchone()["total"]
         cursor.execute(
-            "SELECT incident_id, driver_id, vehicle_id, occurrence_time AS timestamp, incident_type AS type, fine_amount, incident_description AS description, handle_status AS status "
+            "SELECT incident_id, 'D' + CAST(driver_id AS NVARCHAR) AS driver_id, vehicle_id, occurrence_time, incident_type, fine_amount, incident_description, handle_status "
             "FROM Incidents WHERE is_deleted = 0 ORDER BY incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
             (offset, limit),
         )
@@ -187,7 +195,7 @@ def delete_incident(
         conn.commit()
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="删除异常记录失败") from e
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"删除异常记录失败: {e}") from e
 
 
 @router.get("/api/drivers/{person_id}/incidents", response_model=IncidentSelect)
@@ -224,12 +232,12 @@ def get_driver_incidents(
     params_with_pagination = params + [offset, limit]
     cursor.execute(
         f"""
-        SELECT incident_id, driver_id, vehicle_id, 
-               occurrence_time AS timestamp, 
-               incident_type AS type, 
+        SELECT incident_id, 'D' + CAST(driver_id AS NVARCHAR) AS driver_id, vehicle_id, 
+               occurrence_time, 
+               incident_type, 
                fine_amount, 
-               incident_description AS description, 
-               handle_status AS status 
+               incident_description, 
+               handle_status
         FROM Incidents 
         WHERE {where_sql}
         ORDER BY incident_id 

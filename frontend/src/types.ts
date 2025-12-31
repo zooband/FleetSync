@@ -166,16 +166,16 @@ const IncidentSchema = [
             labelKey: 'vehicle_id',
         },
     },
-    { key: 'timestamp', label: '时间', type: 'date' },
-    { key: 'type', label: '异常类型', type: 'select', options: ['运输中异常', '空闲时异常'] },
+    { key: 'occurrence_time', label: '时间', type: 'date' },
+    { key: 'incident_type', label: '异常类型', type: 'select', options: ['运输中异常', '空闲时异常'] },
     {
-        key: 'description',
+        key: 'incident_description',
         label: '异常描述',
         type: 'text',
         suggestions: ['货物破损', '车辆故障', '严重延误', '超速报警'],
     },
     { key: 'fine_amount', label: '罚款金额', type: 'number' },
-    { key: 'status', label: '异常处理状态', type: 'select', options: ['未处理', '已处理'] },
+    { key: 'handle_status', label: '异常处理状态', type: 'select', options: ['未处理', '已处理'] },
 ] as const satisfies readonly FieldDef[]
 
 const FleetSchema = [

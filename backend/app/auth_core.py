@@ -82,6 +82,9 @@ def is_allowed(path: str, session: dict[str, Any]) -> bool:
             return True
         if path.startswith("/api/vehicles"):
             return True
+        # 允许主管访问通用司机搜索接口，具体范围在路由中按车队限制
+        if path.startswith("/api/drivers"):
+            return True
         return False
 
     return False

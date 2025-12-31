@@ -5,6 +5,28 @@ import type { Incident } from '@/types'
 import { IncidentColumns } from '@/types'
 import { apiFetch, apiJson } from '@/services/api'
 
+// 统一读取后端错误消息（优先显示 detail/message 字段）
+async function readBackendError(res: Response): Promise<string> {
+    const msg = `请求失败 (${res.status})`
+    try {
+        const text = await res.text()
+        const trimmed = text.trim()
+        if (!trimmed) return msg
+
+        try {
+            const raw = JSON.parse(trimmed) as { detail?: unknown; message?: unknown }
+            const detail = raw?.detail ?? raw?.message
+            if (typeof detail === 'string' && detail.trim()) return detail.trim()
+        } catch {
+            // 非 JSON，直接返回文本
+        }
+
+        return trimmed
+    } catch {
+        return msg
+    }
+}
+
 // 状态变量
 const incidents = ref<Incident[]>([])
 const total = ref(0)
@@ -31,7 +53,7 @@ async function createIncident(incident: Partial<Incident>) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(incident),
     })
-    if (!res.ok) throw new Error('添加异常事件失败')
+    if (!res.ok) throw new Error(await readBackendError(res))
 }
 
 async function updateIncident(id: number, updates: Partial<Incident>) {
@@ -40,12 +62,12 @@ async function updateIncident(id: number, updates: Partial<Incident>) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
     })
-    if (!res.ok) throw new Error('更新异常事件失败')
+    if (!res.ok) throw new Error(await readBackendError(res))
 }
 
 async function deleteIncident(id: number) {
     const res = await apiFetch(`/api/incidents/${id}`, { method: 'DELETE' })
-    if (!res.ok) throw new Error('删除异常事件失败')
+    if (!res.ok) throw new Error(await readBackendError(res))
 }
 
 // DBtable 操作接口
