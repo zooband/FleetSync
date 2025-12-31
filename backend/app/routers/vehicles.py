@@ -242,8 +242,16 @@ def get_vehicles(
     params: list[object] = [f"%{q}%"]
 
     if status:
-        where_sql += " AND vehicle_status = %s"
-        params.append(status)
+        # 修复：支持逗号分隔的多个状态查询 (例如 "空闲,装货中")
+        # 如果包含逗号，则拆分并使用 IN 查询
+        if ',' in status:
+            status_list = [s.strip() for s in status.split(',')]
+            placeholders = ', '.join(['%s'] * len(status_list))
+            where_sql += f" AND vehicle_status IN ({placeholders})"
+            params.extend(status_list)
+        else:
+            where_sql += " AND vehicle_status = %s"
+            params.append(status)
 
     # 调度主管：仅允许查看自己车队的车辆
     if auth_info.get("role") == "manager":
@@ -283,6 +291,13 @@ def assign_or_free_driver_to_vehicle(
         cursor.execute("SELECT 1 FROM Assignments WHERE person_id = %s OR vehicle_id = %s", (driver_person_id, vehicle_id))
         if cursor.fetchone() is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该司机或车辆已被分配，无法重复分配")
+        
+        # 从司机表中检查司机当前的状态是否为“空闲”
+        cursor_2 = conn.cursor(as_dict=True)
+        cursor_2.execute("SELECT driver_status FROM Drivers WHERE person_id = %s", (driver_person_id,))
+        driver_row = cursor_2.fetchone()
+        if driver_row is None or str(driver_row["driver_status"]).strip() != "空闲":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"该司机当前不可用（状态：'{driver_row['driver_status']}'），无法分配")
 
         try:
             cursor.execute(

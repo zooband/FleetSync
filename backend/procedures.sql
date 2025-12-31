@@ -22,7 +22,7 @@ BEGIN
       AND YEAR(co.completed_at) = @Year 
       AND MONTH(co.completed_at) = @Month;
 
-    -- 2. 统计该车队在该月内发生的异常
+    -- 2. 统计该车队在该月内发生的异常，排除掉已取消的异常
     SELECT 
         @TotalIncidents = COUNT(i.incident_id),
         @TotalFines = ISNULL(SUM(i.fine_amount), 0.00)
@@ -30,7 +30,8 @@ BEGIN
     JOIN Vehicles v ON i.vehicle_id = v.vehicle_id
     WHERE v.fleet_id = @FleetID 
       AND YEAR(i.occurrence_time) = @Year 
-      AND MONTH(i.occurrence_time) = @Month;
+      AND MONTH(i.occurrence_time) = @Month
+      AND i.is_deleted = 0;
 
     -- 3. 返回结果集
     SELECT 

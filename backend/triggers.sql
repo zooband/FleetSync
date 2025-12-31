@@ -133,37 +133,39 @@ END;
 GO
 
 -- 当车辆状态从“运输中”变为“空闲”时，自动将该车辆下所有“运输中”的订单更新为“已完成”，同时
-CREATE TRIGGER trg_CompleteOrderOnVehicleIdle
+CREATE or ALTER TRIGGER trg_CompleteOrderOnVehicleIdle
 ON Vehicles
-after UPDATE
+AFTER UPDATE
 AS BEGIN
     SET NOCOUNT ON;
     IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
+
     -- 检查是否更新了 vehicle_status 字段
     IF UPDATE(vehicle_status)
     BEGIN
-        -- 更新关联订单的状态
+        -- 定义表变量，用于暂存本次真正被更新的订单
+        DECLARE @JustFinishedOrders TABLE (
+            order_id INT,
+            vehicle_id NVARCHAR(50) -- 请确保长度与数据库定义一致
+        );
+
+        -- 1. 更新订单状态，同时将受影响的订单ID输出到表变量中
         UPDATE o
-        set o.order_status = N'已完成'
-        from Orders o
-        inner join inserted i on o.vehicle_id = i.vehicle_id
-        inner join deleted d on i.vehicle_id = d.vehicle_id
-        where i.vehicle_status = N'空闲'        -- 更新后的车辆状态
-          and d.vehicle_status = N'运输中'      -- 更新前的车辆状态
-          and o.order_status = N'运输中'        -- 仅针对正在运输的订单
-          -- 同时在 CompletedOrder 表中插入完成记录
-  
-        INSERT INTO CompletedOrder (order_id, person_id, completed_at)
-        SELECT o.order_id, a.person_id, CAST(GETDATE() AS DATE)
+        SET o.order_status = N'已完成'
+        OUTPUT inserted.order_id, inserted.vehicle_id INTO @JustFinishedOrders(order_id, vehicle_id)
         FROM Orders o
         INNER JOIN inserted i ON o.vehicle_id = i.vehicle_id
         INNER JOIN deleted d ON i.vehicle_id = d.vehicle_id
-        INNER JOIN Assignments a ON i.vehicle_id = a.vehicle_id
-        WHERE i.vehicle_status = N'空闲'
-        AND d.vehicle_status = N'运输中'
-        AND o.order_status = N'已完成'; -- 此时状态已被上面的语句改完
+        WHERE i.vehicle_status = N'空闲'        -- 更新后的车辆状态
+          AND d.vehicle_status = N'运输中'      -- 更新前的车辆状态
+          AND o.order_status = N'运输中';       -- 仅针对正在运输的订单
+
+        -- 2. 仅为刚刚完成的订单插入记录
+        INSERT INTO CompletedOrder (order_id, person_id, completed_at)
+        SELECT fo.order_id, a.person_id, CAST(GETDATE() AS DATE)
+        FROM @JustFinishedOrders fo
+        INNER JOIN Assignments a ON fo.vehicle_id = a.vehicle_id;
     END
-    
 END;
 GO
 -- 当某个订单取消的时候，检查该订单对应的车辆是否还有其他未完成的订单，如果没有，则将车辆状态改为“空闲”

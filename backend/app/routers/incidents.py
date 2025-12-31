@@ -53,7 +53,7 @@ def insert_incident(
 ):
     try:
         if auth_info.get("role") == "manager":
-            cursor = conn.cursor()
+            cursor = conn.cursor(as_dict=False)
             cursor.execute(
                 "SELECT 1 FROM Vehicles WHERE vehicle_id = %s AND fleet_id = %s AND is_deleted = 0",
                 (incident.vehicle_id, auth_info.get("fleet_id")),
@@ -178,7 +178,7 @@ def delete_incident(
     conn=Depends(get_db),
 ):
     try:
-        cursor = conn.cursor()
+        cursor = conn.cursor(as_dict=False)
 
         if auth_info.get("role") == "manager":
             cursor.execute(

@@ -34,7 +34,7 @@ CREATE TABLE Drivers (
     person_name NVARCHAR(50) NOT NULL,
     person_contact NVARCHAR(50),
     driver_license CHAR(2) NOT NULL CHECK (driver_license IN ('A2', 'B2', 'C1', 'C2', 'C3', 'C4', 'C6')),
-    driver_status NCHAR(3) DEFAULT '空闲' CHECK (driver_status IN ('空闲', '运输中', '休息中')) NOT NULL,
+    driver_status NVARCHAR(3) DEFAULT '空闲' CHECK (driver_status IN ('空闲', '运输中', '休息中')) NOT NULL,
     fleet_id INT NOT NULL,
     is_deleted BIT DEFAULT 0 NOT NULL,
     CONSTRAINT FK_Drivers_Fleets FOREIGN KEY (fleet_id) REFERENCES Fleets(fleet_id)

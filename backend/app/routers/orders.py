@@ -44,25 +44,16 @@ def select_orders_by_status(status_value: str, limit: int, offset: int, conn) ->
     total = cursor.fetchone()["total"]
 
     # 2. 分页查询数据 (如果是已完成状态，需要关联 CompletedOrder)
-    if status_value == '已完成':
-        query = """
-            SELECT o.order_id, o.origin, o.destination, o.weight, o.volume, 
-                   o.order_status AS status, o.vehicle_id, c.completed_at
-            FROM Orders o
-            INNER JOIN CompletedOrder c ON o.order_id = c.order_id
-            WHERE o.order_status = %s
-            ORDER BY c.completed_at DESC
-            OFFSET %s ROWS FETCH NEXT %s ROWS ONLY
-        """
-    else:
-        query = """
-            SELECT order_id, origin, destination, weight, volume, 
-                   order_status AS status, vehicle_id, NULL AS completed_at
-            FROM Orders
-            WHERE order_status = %s
-            ORDER BY order_id
-            OFFSET %s ROWS FETCH NEXT %s ROWS ONLY
-        """
+    
+
+    query = """
+        SELECT order_id, origin, destination, weight, volume, 
+                order_status AS status, vehicle_id, NULL AS completed_at
+        FROM Orders
+        WHERE order_status = %s
+        ORDER BY order_id
+        OFFSET %s ROWS FETCH NEXT %s ROWS ONLY
+    """
     
     cursor.execute(query, (status_value, offset, limit))
     rows = cursor.fetchall()
