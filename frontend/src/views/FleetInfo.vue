@@ -374,7 +374,7 @@ async function assignDriverToVehicle() {
     assigning.value = true
     try {
         // 后端要求 driver_id 形如 D+数字，例如 D1
-        const driverId = `D${String(d.person_id)}`
+        const driverId = `${String(d.person_id)}`
         await assignVehicleDriver(v.vehicle_id, driverId)
         updateLocalVehicle(v.vehicle_id, {
             driver_name: d.person_name ?? '',
