@@ -55,8 +55,8 @@ function onCardClick() {
         <!-- 操作按钮区域（仅在 default 模式下显示） -->
         <div v-if="variant === 'default'" class="mt-3 flex gap-2">
             <slot v-if="$slots.actions" name="actions" />
-            <PrimeButton v-if="allowEdit" icon="pi pi-pencil" text rounded size="small" @click.stop="emit('edit')" />
-            <PrimeButton v-if="allowDelete" icon="pi pi-trash" text rounded severity="danger" size="small"
+            <PrimeButton v-if="allowEdit" aria-label="编辑" icon="pi pi-pencil" text rounded size="small" @click.stop="emit('edit')" />
+            <PrimeButton v-if="allowDelete" aria-label="删除" icon="pi pi-trash" text rounded severity="danger" size="small"
                 @click.stop="emit('delete')" />
         </div>
 

@@ -57,7 +57,12 @@ def insert_driver(fleet_id: int, payload: DriverCreate, auth_info=Depends(requir
 
 
 @router.patch("/api/drivers/{driver_id}")
-def update_driver(driver_id: str, updates: DriverUpdate, auth_info=Depends(require_admin), conn=Depends(get_db)):
+def update_driver(
+    driver_id: str,
+    updates: DriverUpdate,
+    auth_info=Depends(require_admin_or_manager),
+    conn=Depends(get_db),
+):
     update_data = updates.model_dump(exclude_unset=True)
     if not update_data:
         return {"detail": "没有提供更新内容"}
@@ -68,8 +73,30 @@ def update_driver(driver_id: str, updates: DriverUpdate, auth_info=Depends(requi
         if not driver_id or driver_id[0].upper() != "D" or not driver_id[1:].isdigit():
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="driver_id 格式错误，应为 D+数字（如 D1）")
 
-        set_clause = ", ".join(f"{k} = %s" for k in update_data)
         person_id = int(driver_id[1:])
+
+        role = auth_info.get("role")
+        if role == "manager":
+            allowed = {"driver_status"}
+            extra_keys = set(update_data.keys()) - allowed
+            if extra_keys:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足：调度主管仅允许切换司机休息状态")
+
+            next_status = str(update_data.get("driver_status") or "").strip()
+            if next_status not in {"空闲", "休息中"}:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="driver_status 仅支持 空闲/休息中")
+
+            cursor.execute(
+                "SELECT fleet_id FROM Drivers WHERE person_id = %s AND is_deleted = 0",
+                (person_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到司机记录")
+            if row.get("fleet_id") != auth_info.get("fleet_id"):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足：仅允许操作本车队司机")
+
+        set_clause = ", ".join(f"{k} = %s" for k in update_data)
         values = tuple(update_data.values()) + (person_id,)
         cursor.execute(
             f"UPDATE Drivers SET {set_clause} WHERE person_id = %s AND is_deleted = 0",
@@ -79,6 +106,9 @@ def update_driver(driver_id: str, updates: DriverUpdate, auth_info=Depends(requi
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到司机记录")
         conn.commit()
         return {"detail": "司机信息更新成功"}
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"更新司机失败: {e}") from e
