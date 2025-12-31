@@ -132,7 +132,25 @@ async function completeForeign(field: Columns, query: string) {
     const params = new URLSearchParams({ [qp]: query, [lp]: '10', [op]: '0' })
     const url = cfg.endpoint.includes('?') ? `${cfg.endpoint}&${params}` : `${cfg.endpoint}?${params}`
     const res = await apiFetch(url)
-    if (!res.ok) throw new Error('加载候选失败')
+    if (!res.ok) {
+        let msg = `加载候选失败 (${res.status})`
+        try {
+            const text = (await res.text()).trim()
+            if (text) {
+                try {
+                    const raw = JSON.parse(text) as { detail?: unknown; message?: unknown }
+                    const detail = raw?.detail ?? raw?.message
+                    if (typeof detail === 'string' && detail.trim()) msg = detail.trim()
+                    else msg = text
+                } catch {
+                    msg = text
+                }
+            }
+        } catch {
+            // ignore
+        }
+        throw new Error(msg)
+    }
 
     const raw = (await res.json()) as unknown
     const rows = Array.isArray(raw)
@@ -190,6 +208,15 @@ function showSuccess(message: string) {
 
 function showError(message: string) {
     toast.add({ severity: 'error', summary: '错误', detail: message })
+}
+
+function getErrorMessage(e: unknown, fallback: string): string {
+    if (e && typeof e === 'object' && 'message' in e) {
+        const msg = (e as { message?: unknown }).message
+        if (typeof msg === 'string' && msg.trim()) return msg
+    }
+    if (typeof e === 'string' && e.trim()) return e
+    return fallback
 }
 
 function displayValue(row: Record<string, unknown>, col: Columns): string {
@@ -303,7 +330,7 @@ async function onRowEditSave(event: { data: T; newData: T }) {
         const origKey = getOriginalIdTextFromRow(event.data)
         const originalBackup = origKey ? originalDataMap.value[origKey] : undefined
         if (originalBackup) Object.assign(item as unknown as Record<string, unknown>, originalBackup as unknown as Record<string, unknown>)
-        showError(`更新失败: ${error}`)
+        showError(getErrorMessage(error, '更新失败'))
     }
 }
 
@@ -331,8 +358,8 @@ function doDelete(item: Record<string, unknown>) {
                 await deleteOp(idValue)
                 showSuccess('删除成功')
                 await fetchByQuery()
-            } catch {
-                showError('删除失败')
+            } catch (e) {
+                showError(getErrorMessage(e, '删除失败'))
             }
         },
     })
@@ -386,7 +413,7 @@ async function refresh() {
     try {
         await fetchByQuery()
     } catch (e: unknown) {
-        showError('无法连接服务器，刷新失败')
+        showError(getErrorMessage(e, '刷新失败'))
         console.error('刷新失败：', e)
     } finally {
         // 保证最短显示时长，避免瞬间闪烁看不见
@@ -403,7 +430,7 @@ function onPage(event: { first: number; rows: number }) {
     pageFirst.value = event.first
     pageRows.value = event.rows
     fetchByQuery().catch((e) => {
-        showError('分页加载失败')
+        showError(getErrorMessage(e, '分页加载失败'))
         console.error('分页加载失败：', e)
     })
 }
@@ -413,7 +440,7 @@ onMounted(() => {
     // 初始化表单并加载第一页
     resetCreate()
     fetchByQuery().catch((e) => {
-        showError('初始化加载失败')
+        showError(getErrorMessage(e, '初始化加载失败'))
         console.error('初始化加载失败：', e)
     })
 })

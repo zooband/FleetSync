@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Path
 from pydantic import BaseModel
 from fastapi import Depends
 from app.db import get_db
-from app.auth_core import require_admin, require_admin_or_fleet_manager
+from app.auth_core import require_admin, require_admin_or_fleet_manager, require_admin_manager_or_driver_self
 
 router = APIRouter()
 
@@ -17,8 +17,8 @@ class Driver(BaseModel):
 
 
 class DriverUpdate(BaseModel):
-    driver_name: str | None = None
-    driver_contact: str | None = None
+    person_name: str | None = None
+    person_contact: str | None = None
     driver_license: str | None = None
     driver_status: str | None = None
 
@@ -56,7 +56,7 @@ def insert_driver(fleet_id: int, payload: DriverCreate, auth_info=Depends(requir
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="创建司机失败") from e
 
 
-@router.patch("/api/drivers/{driver_id}", response_model=Driver)
+@router.patch("/api/drivers/{driver_id}")
 def update_driver(driver_id: str, updates: DriverUpdate, auth_info=Depends(require_admin), conn=Depends(get_db)):
     update_data = updates.model_dump(exclude_unset=True)
     if not update_data:
@@ -65,25 +65,36 @@ def update_driver(driver_id: str, updates: DriverUpdate, auth_info=Depends(requi
     try:
         cursor = conn.cursor()
 
+        if not driver_id or driver_id[0].upper() != "D" or not driver_id[1:].isdigit():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="driver_id 格式错误，应为 D+数字（如 D1）")
+
         set_clause = ", ".join(f"{k} = %s" for k in update_data)
-        values = list(update_data.values()) + [driver_id[1:]]
+        person_id = int(driver_id[1:])
+        values = tuple(update_data.values()) + (person_id,)
         cursor.execute(
-            f"UPDATE Drivers SET {set_clause} WHERE driver_id = %s AND is_deleted = 0",
+            f"UPDATE Drivers SET {set_clause} WHERE person_id = %s AND is_deleted = 0",
             values,
         )
         if cursor.rowcount == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到司机记录")
         conn.commit()
         return {"detail": "司机信息更新成功"}
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新司机失败") from e
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"更新司机失败: {e}") from e
 
 
 @router.delete("/api/drivers/{driver_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_driver(driver_id: str, auth_info=Depends(require_admin), conn=Depends(get_db)):
     cursor = conn.cursor(as_dict=False)
-    cursor.execute("SELECT 1 FROM Drivers WHERE driver_id = %s AND is_deleted = 0", (driver_id,))
+
+    if not driver_id or driver_id[0].upper() != "D" or not driver_id[1:].isdigit():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="driver_id 格式错误，应为 D+数字（如 D1）")
+    
+    cursor.execute("SELECT 1 FROM Drivers WHERE person_id = %s AND is_deleted = 0", (driver_id[1:],))
     if cursor.fetchone() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"找不到ID为 {driver_id} 的司机")
     try:
@@ -91,8 +102,8 @@ def delete_driver(driver_id: str, auth_info=Depends(require_admin), conn=Depends
         if cursor.fetchone() is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该司机有活跃运单，无法删除")
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM Assignments WHERE driver_id = %s", (driver_id[1:],))
-        cursor.execute("UPDATE Drivers SET is_deleted = 1 WHERE driver_id = %s AND is_deleted = 0", (driver_id[1:],))
+        cursor.execute("DELETE FROM Assignments WHERE person_id = %s", (driver_id[1:],))
+        cursor.execute("UPDATE Drivers SET is_deleted = 1 WHERE person_id = %s AND is_deleted = 0", (driver_id[1:],))
         conn.commit()
         return {"detail": "司机删除成功"}
     except Exception as e:
@@ -120,3 +131,24 @@ def list_fleet_drivers(
     rows = cursor.fetchall()
     data = [Driver(**r) for r in rows]
     return DriversSelect(data=data, total=total)
+
+@router.get("/api/drivers/{person_id}", response_model=Driver)
+def get_driver_detail(
+    person_id: str = Path(..., regex=r"^D\d+$", description="司机 ID，格式为 D+数字"),
+    auth_info=Depends(require_admin_manager_or_driver_self),
+    conn=Depends(get_db),
+):
+    if not person_id or person_id[0].upper() != "D" or not person_id[1:].isdigit():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="driver_id 格式错误，应为 D+数字（如 D1）")
+    driver_id = int(person_id[1:])
+
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "SELECT 'D' + CAST(person_id AS NVARCHAR) AS person_id, person_name, driver_license, driver_status, person_contact, fleet_id FROM Drivers WHERE person_id = %s AND is_deleted = 0",
+        (driver_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到司机记录")
+    return Driver(**row)

@@ -375,7 +375,7 @@ function doDelete(item: T) {
 
 onMounted(() => {
     fetchByQuery().catch((e) => {
-        showError((e as Error).message || '初始化加载失败')
+        showError((e as Error)?.message || String(e) || '初始化加载失败')
     })
 })
 </script>

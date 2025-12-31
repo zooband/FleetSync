@@ -179,7 +179,7 @@ async function toggleDriverLeave(item: Driver) {
     const current = String(item.driver_status ?? '')
     const nextStatus = current === '请假中' ? '空闲' : '请假中'
     try {
-        const res = await apiFetch(`/api/personnels/drivers/${encodeURIComponent(String(item.person_id))}`, {
+        const res = await apiFetch(`/api/drivers/${encodeURIComponent(String(item.person_id))}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ driver_status: nextStatus }),
@@ -301,7 +301,7 @@ async function createFleetDriver(item: Partial<Driver>) {
 
 async function deleteFleetDriver(driver_id: Driver['person_id']) {
     if (!Number.isFinite(fleetId.value)) throw new Error('无效的车队ID')
-    const res = await apiFetch(`/api/fleets/${fleetId.value}/drivers/${encodeURIComponent(String(driver_id))}`, {
+    const res = await apiFetch(`/api/drivers/${encodeURIComponent(String(driver_id))}`, {
         method: 'DELETE',
     })
     if (!res.ok) {
@@ -320,7 +320,7 @@ async function updateFleetDriver(driver_id: Driver['person_id'], updates: Partia
     if (!payload.person_name) throw new Error('请填写姓名')
     if (!payload.driver_license) throw new Error('请填写驾照等级')
 
-    const res = await apiFetch(`/api/personnels/${encodeURIComponent(String(driver_id))}`, {
+    const res = await apiFetch(`/api/drivers/${encodeURIComponent(String(driver_id))}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

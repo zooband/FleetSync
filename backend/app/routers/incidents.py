@@ -143,7 +143,7 @@ def list_incidents(
         total = cursor.fetchone()["total"]
         cursor.execute(
             "SELECT i.incident_id, i.driver_id, i.vehicle_id, i.occurrence_time AS timestamp, i.incident_type AS type, "
-            "i.fine_amount, i.description, i.handle_status AS status "
+            "i.fine_amount, i.incident_description AS description, i.handle_status AS status "
             "FROM Incidents i JOIN Vehicles v ON i.vehicle_id = v.vehicle_id "
             "WHERE i.is_deleted = 0 AND v.is_deleted = 0 AND v.fleet_id = %s "
             "ORDER BY i.incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
@@ -153,7 +153,7 @@ def list_incidents(
         cursor.execute("SELECT COUNT(*) AS total FROM Incidents WHERE is_deleted = 0")
         total = cursor.fetchone()["total"]
         cursor.execute(
-            "SELECT incident_id, driver_id, vehicle_id, occurrence_time AS timestamp, incident_type AS type, fine_amount, description, handle_status AS status "
+            "SELECT incident_id, driver_id, vehicle_id, occurrence_time AS timestamp, incident_type AS type, fine_amount, incident_description AS description, handle_status AS status "
             "FROM Incidents WHERE is_deleted = 0 ORDER BY incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
             (offset, limit),
         )
@@ -192,7 +192,7 @@ def delete_incident(
 
 @router.get("/api/drivers/{person_id}/incidents", response_model=IncidentSelect)
 def get_driver_incidents(
-    person_id: int,
+    person_id: str,
     start: str | None = Query(None), # 起始日期YYYY-MM-DD
     end: str | None = Query(None), # 结束日期YYYY-MM-DD
     limit: int = Query(10, ge=1),
@@ -201,26 +201,27 @@ def get_driver_incidents(
     conn=Depends(get_db)
 ):
     cursor = conn.cursor()
+    driver_id = person_id.lstrip("D")
     cursor.execute(
         "SELECT COUNT(*) AS total FROM Incidents WHERE driver_id = %s AND is_deleted = 0"
         + (" AND occurrence_time >= %s" if start else "")
         + (" AND occurrence_time <= %s" if end else ""),
         tuple(
             arg
-            for arg in [person_id, start, end]
+            for arg in [driver_id, start, end]
             if arg is not None
         ),
     )
     total = cursor.fetchone()["total"]
 
     cursor.execute(
-        "SELECT incident_id, driver_id, vehicle_id, occurrence_time AS timestamp, incident_type AS type, fine_amount, description, handle_status AS status FROM Incidents WHERE driver_id = %s AND is_deleted = 0"
+        "SELECT incident_id, driver_id, vehicle_id, occurrence_time AS timestamp, incident_type AS type, fine_amount, incident_description AS description, handle_status AS status FROM Incidents WHERE driver_id = %s AND is_deleted = 0"
         + (" AND occurrence_time >= %s" if start else "")
         + (" AND occurrence_time <= %s" if end else "")
         + " ORDER BY incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
         tuple(
             arg
-            for arg in [person_id, start, end, offset, limit]
+            for arg in [driver_id, start, end, offset, limit]
             if arg is not None
         ),
     )

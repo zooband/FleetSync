@@ -17,9 +17,17 @@ type PersonUnion = Personnel | Driver | FleetManager
 
 const route = useRoute()
 
-const personId = computed(() => {
-    const raw = route.params.personId
-    const n = typeof raw === 'string' ? Number(raw) : Array.isArray(raw) ? Number(raw[0]) : Number(raw)
+function normalizePersonnelId(raw: unknown): string {
+    const s = typeof raw === 'string' ? raw : Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '')
+    const v = s.trim()
+    return /^[DM]\d+$/.test(v) ? v : ''
+}
+
+const personId = computed(() => normalizePersonnelId(route.params.personId))
+
+const personNumericId = computed(() => {
+    if (!personId.value) return NaN
+    const n = Number(personId.value.slice(1))
     return Number.isFinite(n) ? n : NaN
 })
 
@@ -27,19 +35,18 @@ const person = ref<PersonUnion | null>(null)
 
 const isAdmin = computed(() => auth.value?.role === 'admin')
 
-const isDriver = computed(() => (person.value as Record<string, unknown> | null)?.['person_role'] === '司机')
+const isDriver = computed(() => personId.value.startsWith('D'))
 
 function isDriverPerson(p: PersonUnion | null): p is Driver {
-    return !!p && (p as Personnel).person_role === '司机' && 'driver_license' in p
+    return !!p && 'driver_license' in p
 }
 
 const driverPerson = computed<Driver | null>(() => {
     return isDriverPerson(person.value) ? person.value : null
 })
 const displayedColumns = computed<readonly Columns[]>(() => {
-    const role = (person.value as Record<string, unknown> | null)?.['person_role']
-    if (role === '司机') return DriverColumns
-    if (role === '调度主管') return FleetManagerColumns
+    if (personId.value.startsWith('D')) return DriverColumns
+    if (personId.value.startsWith('M')) return FleetManagerColumns
     return PersonnelColumns
 })
 
@@ -66,32 +73,61 @@ const driverIncidentsTotal = ref(0)
 type PaginatedResponse<T> = { data: T[]; total: number }
 
 async function fetchPerson() {
-    if (!Number.isFinite(personId.value)) return
-    person.value = await apiJson<PersonUnion>(`/api/personnels/${personId.value}`)
+    if (!personId.value) return
+    if (personId.value.startsWith('D')) {
+        if (!Number.isFinite(personNumericId.value)) {
+            toast.add({ severity: 'error', summary: '错误', detail: '无效的司机ID' })
+            return
+        }
+        try {
+            person.value = await apiJson<Driver>(`/api/drivers/${personId.value}`)
+            return
+        } catch (e) {
+            toast.add({ severity: 'error', summary: '错误', detail: (e as Error)?.message || '加载司机信息失败' })
+            throw e
+        }
+    }
+    if (personId.value.startsWith('M')) {
+        if (!Number.isFinite(personNumericId.value)) {
+            toast.add({ severity: 'error', summary: '错误', detail: '无效的主管ID' })
+            return
+        }
+        try {
+            person.value = await apiJson<FleetManager>(`/api/managers/${personId.value}`)
+            return
+        } catch (e) {
+            toast.add({ severity: 'error', summary: '错误', detail: (e as Error)?.message || '加载主管信息失败' })
+            throw e
+        }
+    }
 }
 
 async function searchDriverOrders(_query: string, limit: number, offset: number) {
-    if (!Number.isFinite(personId.value)) throw new Error('无效的人员ID')
+    if (!personId.value || !personId.value.startsWith('D') || !Number.isFinite(personNumericId.value)) {
+        throw new Error('无效的司机ID')
+    }
     const params = new URLSearchParams({
         start: toDateString(startDate.value),
         end: toDateString(endDate.value),
         limit: String(limit),
         offset: String(offset),
     })
-    const data = await apiJson<PaginatedResponse<Order>>(`/api/personnels/${personId.value}/orders?${params}`)
+    const data = await apiJson<PaginatedResponse<Order>>(`/api/drivers/${personNumericId.value}/orders?${params}`)
     driverOrders.value = data.data
     driverOrdersTotal.value = data.total
 }
 
 async function searchDriverIncidents(_query: string, limit: number, offset: number) {
-    if (!Number.isFinite(personId.value)) throw new Error('无效的人员ID')
+    if (!personId.value || !personId.value.startsWith('D') || !Number.isFinite(personNumericId.value)) {
+        throw new Error('无效的司机ID')
+    }
     const params = new URLSearchParams({
         start: toDateString(startDate.value),
         end: toDateString(endDate.value),
         limit: String(limit),
         offset: String(offset),
     })
-    const data = await apiJson<PaginatedResponse<Incident>>(`/api/personnels/${personId.value}/incidents?${params}`)
+    const data = await apiJson<PaginatedResponse<Incident>>(`/api/drivers/${personNumericId.value}/incidents?${params}`)
     driverIncidents.value = data.data
     driverIncidentsTotal.value = data.total
 }
@@ -139,7 +175,7 @@ function openEditDriver() {
 }
 
 async function confirmEditDriver() {
-    if (!Number.isFinite(personId.value)) throw new Error('无效的人员ID')
+    if (!personId.value || !personId.value.startsWith('D')) throw new Error('无效的司机ID')
     const payload = {
         person_name: editName.value.trim(),
         person_contact: editContact.value.trim() ? editContact.value.trim() : null,
@@ -150,7 +186,7 @@ async function confirmEditDriver() {
 
     editSubmitting.value = true
     try {
-        const res = await apiFetch(`/api/personnels/${personId.value}`, {
+        const res = await apiFetch(`/api/drivers/${personId.value}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -171,14 +207,16 @@ async function confirmEditDriver() {
 }
 
 onMounted(() => {
-    fetchPerson().catch((e) => console.error(e))
+    fetchPerson().catch(() => {
+        // 已在 fetchPerson 内用 toast 提示
+    })
 })
 </script>
 
 <template>
     <div class="p-6 space-y-6">
         <div class="flex items-center justify-between">
-            <h2 class="text-xl font-bold">人员信息详情（ID：{{ Number.isFinite(personId) ? personId : '-' }}）</h2>
+            <h2 class="text-xl font-bold">人员信息详情（ID：{{ personId || '-' }}）</h2>
             <PrimeButton v-if="isAdmin && isDriver" size="small" label="编辑司机信息" @click="openEditDriver" />
         </div>
 

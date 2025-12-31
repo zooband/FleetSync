@@ -31,7 +31,7 @@ const routes = [
         meta: { title: '配送中心', showInMenu: true, order: 0, roles: ['admin'] },
     },
     {
-        path: '/personnels/:personId(\\d+)',
+        path: '/personnels/:personId([DM]\\d+)',
         name: 'PersonnelInfo',
         component: () => import('@/views/PersonnelInfo.vue'),
         meta: { title: '人员详情', showInMenu: false },
@@ -87,8 +87,9 @@ router.beforeEach((to) => {
     // 细粒度：司机只能访问自己的 PersonnelInfo
     if (role === 'staff') {
         if (to.name === 'PersonnelInfo') {
-            const pid = Number((to.params as Record<string, unknown>)?.personId)
-            if (Number.isFinite(pid) && auth.value?.personnelId === pid) return true
+            const pid = String((to.params as Record<string, unknown>)?.personId ?? '')
+            const expected = auth.value?.personnelId != null ? `D${auth.value.personnelId}` : ''
+            if (expected && pid === expected) return true
             return getHomePath()
         }
         if (to.name === 'MyInfo' || to.name === 'Login') return true

@@ -25,10 +25,22 @@ export async function apiFetch(
         if (token) headers.set('Authorization', `Bearer ${token}`)
     }
 
-    const res = await fetch(resolveUrl(input), {
-        ...init,
-        headers,
-    })
+    const url = resolveUrl(input)
+    let res: Response
+    try {
+        res = await fetch(url, {
+            ...init,
+            headers,
+        })
+    } catch (e: unknown) {
+        const rawMsg =
+            e && typeof e === 'object' && 'message' in e
+                ? String((e as { message?: unknown }).message ?? '')
+                : String(e ?? '')
+        const msg = rawMsg && rawMsg.trim() ? rawMsg.trim() : '网络请求失败'
+        // 这类错误通常是：后端进程崩溃/连接被重置/CORS/端口不通，此时前端拿不到后端 JSON detail。
+        throw new Error(`${msg}（${url}）。后端可能在返回响应前异常退出，请查看后端控制台日志。`)
+    }
 
     if (res.status === 401) {
         // token 失效/未登录：清理本地状态，交给路由守卫去跳转
@@ -62,8 +74,18 @@ export async function apiJson<T>(
     if (!res.ok) {
         let msg = `请求失败 (${res.status})`
         try {
-            const raw = (await res.json()) as { detail?: string }
-            if (raw?.detail) msg = raw.detail
+            const text = await res.text()
+            const trimmed = text.trim()
+            if (trimmed) {
+                try {
+                    const raw = JSON.parse(trimmed) as { detail?: unknown; message?: unknown }
+                    const detail = raw?.detail ?? raw?.message
+                    if (typeof detail === 'string' && detail.trim()) msg = detail.trim()
+                    else msg = trimmed
+                } catch {
+                    msg = trimmed
+                }
+            }
         } catch {
             // ignore
         }

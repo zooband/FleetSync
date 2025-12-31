@@ -44,12 +44,15 @@ export function getHomePath(): string {
     if (!a) return '/login'
     if (a.role === 'admin') return '/distribution'
     if (a.role === 'manager') return a.fleetId != null ? `/fleet/${a.fleetId}` : '/login'
-    return a.personnelId != null ? `/personnels/${a.personnelId}` : '/login'
+    return a.personnelId != null ? `/personnels/D${a.personnelId}` : '/login'
 }
 
 export function getMyInfoPath(): string {
     const a = auth.value
-    return a?.personnelId != null ? `/personnels/${a.personnelId}` : '/login'
+    if (a?.personnelId == null) return '/login'
+    if (a.role === 'manager') return `/personnels/M${a.personnelId}`
+    if (a.role === 'staff') return `/personnels/D${a.personnelId}`
+    return `/personnels/${a.personnelId}`
 }
 
 export function getMyFleetPath(): string {
