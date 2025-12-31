@@ -10,7 +10,6 @@ router = APIRouter()
 class Driver(BaseModel):
     person_id: str
     person_name: str
-    person_role: str
     person_contact: str | None = None
     driver_license: str
     driver_status: str
@@ -115,7 +114,7 @@ def list_fleet_drivers(
     total = cursor.fetchone()["total"]
 
     cursor.execute(
-        "SELECT person_id AS driver_id, person_name AS driver_name, driver_license, driver_status, person_contact, fleet_id FROM Drivers WHERE fleet_id = %s AND is_deleted = 0 AND (person_name LIKE %s OR person_contact LIKE %s) ORDER BY person_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+        "SELECT 'D' + CAST(person_id AS NVARCHAR) AS person_id, person_name, driver_license, driver_status, person_contact, fleet_id FROM Drivers WHERE fleet_id = %s AND is_deleted = 0 AND (person_name LIKE %s OR person_contact LIKE %s) ORDER BY person_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
         (fleet_id, f"%{q}%", f"%{q}%", offset, limit),
     )
     rows = cursor.fetchall()

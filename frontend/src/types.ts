@@ -58,7 +58,6 @@ const PersonnelSchema = [
     { key: 'person_id', label: '工号', type: 'number', isId: true, editable: false },
     { key: 'person_name', label: '姓名', type: 'text' },
     { key: 'person_contact', label: '联系方式', type: 'text', required: false },
-    { key: 'person_role', label: '职务', type: 'text', editable: false }, // '司机' | '调度主管'
 ] as const satisfies readonly FieldDef[]
 
 const DriverSchema = [

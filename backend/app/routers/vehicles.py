@@ -13,9 +13,11 @@ class Vehicle(BaseModel):
     vehicle_id: str
     vehicle_load_capacity: float
     vehicle_volume_capacity: float
+    remaining_load_capacity: float | None = None
+    remaining_volume_capacity: float | None = None
     vehicle_status: str
     fleet_id: int | None = None
-    driver_id: str | None = None
+    driver_name: str | None = None
 
 
 class VehiclesSelect(BaseModel):
@@ -63,7 +65,7 @@ def insert_vehicle(fleet_id: int, vehicle: VehicleCreate, auth_info=Depends(requ
 def update_vehicle(vehicle_id: str, updates: VehicleUpdate, auth_info=Depends(require_admin), conn=Depends(get_db)):
     update_data = updates.model_dump(exclude_unset=True)
     if not update_data:
-        return {"message": "没有提供更新内容"}
+        return {"detail": "没有提供更新内容"}
     
     try:
         cursor = conn.cursor()
@@ -74,7 +76,7 @@ def update_vehicle(vehicle_id: str, updates: VehicleUpdate, auth_info=Depends(re
             update_values + [vehicle_id],
         )
         conn.commit()
-        return {"message": "车辆信息更新成功"}
+        return {"detail": "车辆信息更新成功"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
@@ -130,7 +132,7 @@ def get_vehicles_of_fleet(
     cursor.execute("SELECT COUNT(*) AS total FROM Vehicles WHERE fleet_id = %s AND is_deleted = 0 AND (vehicle_id LIKE %s)", (fleet_id, f"%{q}%"))
     total = cursor.fetchone()["total"]
 
-    cursor.execute("SELECT v.vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, vehicle_status, fleet_id, person_id AS driver_id FROM Vehicles v LEFT JOIN Assignments a ON v.vehicle_id = a.vehicle_id WHERE fleet_id = %s AND is_deleted = 0 AND (v.vehicle_id LIKE %s) ORDER BY v.vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (fleet_id, f"%{q}%", offset, limit))
+    cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, remaining_weight AS remaining_load_capacity, remaining_volume AS remaining_volume_capacity, vehicle_status, fleet_id, driver_name FROM View_VehicleResourceStatus WHERE fleet_id = %s AND (vehicle_id LIKE %s) ORDER BY vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (fleet_id, f"%{q}%", offset, limit))
     rows = cursor.fetchall()
     data = [Vehicle(**r) for r in rows]
 
