@@ -143,7 +143,25 @@ def delete_vehicle(vehicle_id: str, auth_info=Depends(require_admin), conn=Depen
         conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="删除车辆失败") from e
     
-
+# 确认送达api，状态改为空闲
+@router.post("/api/vehicles/{vehicle_id}/deliver")
+def deliver_vehicle(vehicle_id: str, auth_info=Depends(require_admin_or_vehicle_fleet_manager), conn=Depends(get_db)):
+    try:
+        cursor = conn.cursor()
+        # 更新车辆状态为空闲
+        cursor.execute(
+            "UPDATE Vehicles SET vehicle_status = %s WHERE vehicle_id = %s AND is_deleted = 0",
+            ("空闲", vehicle_id),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录")
+        conn.commit()
+        return {"detail": "车辆已送达，订单状态更新为已完成"}
+    except Exception as e:
+        # 打印报错信息以便调试
+        print(f"Error occurred: {e}")
+        conn.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="wtf车辆送达确认失败") from e
 
 # 定义一个新的返回模型，匹配前端的 data.available 和 data.unavailable
 class CenterVehicleResourcesResponse(BaseModel):

@@ -9,7 +9,7 @@ SELECT
     ISNULL(SUM(CASE WHEN o.order_status NOT IN ('已取消', '已完成', '待处理') THEN o.weight ELSE 0 END), 0) AS used_weight,
     ISNULL(SUM(CASE WHEN o.order_status NOT IN ('已取消', '已完成', '待处理') THEN o.volume ELSE 0 END), 0) AS used_volume,
     v.max_weight - ISNULL(SUM(CASE WHEN o.order_status NOT IN ('已取消', '已完成', '待处理') THEN o.weight ELSE 0 END), 0) AS remaining_weight,
-    v.max_volume - ISNULL(SUM(CASE WHEN o.order_status NOT IN ('已取消', '已完成', '待处理') THEN o.volume ELSE 0 END), 0) AS remaining_volume,
+    v.max_volume - ISNULL(SUM(CASE WHEN o.order_status NOT IN ('已取消', '已完成', '待处理') THEN o.volume ELSE 0 END), 0) AS remaining_volume, --订单完成后不用再手动更改车辆的剩余载重和体积，因为视图会动态计算
     v.fleet_id,
     v.vehicle_status,
     d.person_name AS driver_name

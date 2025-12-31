@@ -7,7 +7,7 @@ AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-
+    IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
     -- 检查是否更新了 order_status 字段
     IF UPDATE(order_status)
     BEGIN
@@ -35,7 +35,7 @@ AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-
+    IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
     -- 检查关键字段中是否有任意一个被更新
     IF UPDATE(driver_license) OR UPDATE(person_contact) OR UPDATE(person_name)
     BEGIN
@@ -58,7 +58,7 @@ AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-
+    IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
     -- 只有处理状态从“未处理”变为“已处理”时触发
     IF UPDATE(handle_status)
     BEGIN
@@ -108,7 +108,7 @@ AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-
+    IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
     -- 检查是否有实际的行被更新（排除虚拟更新）
     IF NOT EXISTS (SELECT 1 FROM inserted) OR NOT EXISTS (SELECT 1 FROM deleted)
         RETURN;
@@ -131,3 +131,37 @@ BEGIN
     END
 END;
 GO
+
+-- 当车辆状态从“运输中”变为“空闲”时，自动将该车辆下所有“运输中”的订单更新为“已完成”，同时
+CREATE TRIGGER trg_CompleteOrderOnVehicleIdle
+ON Vehicles
+after UPDATE
+AS BEGIN
+    SET NOCOUNT ON;
+    IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
+    -- 检查是否更新了 vehicle_status 字段
+    IF UPDATE(vehicle_status)
+    BEGIN
+        -- 更新关联订单的状态
+        UPDATE o
+        set o.order_status = N'已完成'
+        from Orders o
+        inner join inserted i on o.vehicle_id = i.vehicle_id
+        inner join deleted d on i.vehicle_id = d.vehicle_id
+        where i.vehicle_status = N'空闲'        -- 更新后的车辆状态
+          and d.vehicle_status = N'运输中'      -- 更新前的车辆状态
+          and o.order_status = N'运输中'        -- 仅针对正在运输的订单
+          -- 同时在 CompletedOrder 表中插入完成记录
+  
+        INSERT INTO CompletedOrder (order_id, person_id, completed_at)
+        SELECT o.order_id, a.person_id, CAST(GETDATE() AS DATE)
+        FROM Orders o
+        INNER JOIN inserted i ON o.vehicle_id = i.vehicle_id
+        INNER JOIN deleted d ON i.vehicle_id = d.vehicle_id
+        INNER JOIN Assignments a ON i.vehicle_id = a.vehicle_id
+        WHERE i.vehicle_status = N'空闲'
+        AND d.vehicle_status = N'运输中'
+        AND o.order_status = N'已完成'; -- 此时状态已被上面的语句改完
+    END
+    
+END;
