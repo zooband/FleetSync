@@ -12,7 +12,7 @@ router = APIRouter()
 class Vehicle(BaseModel):
     vehicle_id: str
     vehicle_load_capacity: float
-    vehicle_volumn_capacity: float
+    vehicle_volume_capacity: float
     vehicle_status: str
     fleet_id: int | None = None
     driver_id: str | None = None
@@ -27,7 +27,7 @@ class VehicleUpdate(Vehicle):
     driver_name: str | None = None
     fleet_name: str | None = None
     remaining_load_capacity: float | None = None
-    remaining_volumn_capacity: float | None = None
+    remaining_volume_capacity: float | None = None
     active_order_id: int | None = None
     active_order_status: str | None = None
 
@@ -35,7 +35,7 @@ class VehicleUpdate(Vehicle):
 class VehicleCreate(BaseModel):
     vehicle_id: str
     vehicle_load_capacity: float
-    vehicle_volumn_capacity: float
+    vehicle_volume_capacity: float
     fleet_id: int | None = None
 
 
@@ -45,13 +45,18 @@ def insert_vehicle(fleet_id: int, vehicle: VehicleCreate, auth_info=Depends(requ
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO Vehicles (vehicle_id, max_weight, max_volume, vehicle_status, fleet_id) VALUES (%s, %s, %s, %s, %s);",
-            (vehicle.vehicle_id, vehicle.vehicle_load_capacity, vehicle.vehicle_volumn_capacity, "空闲", fleet_id),
+            (vehicle.vehicle_id, vehicle.vehicle_load_capacity, vehicle.vehicle_volume_capacity, "空闲", fleet_id),
         )
         conn.commit()
         return {"detail": "车辆创建成功", "vehicle_id": vehicle.vehicle_id}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="创建车辆失败") from e
+        if hasattr(e, 'args') and len(e.args) > 0 and "2627" in str(e.args[0]):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"车辆 ID '{vehicle.vehicle_id}' 已存在"
+            )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"创建车辆失败: {e}") from e
 
 
 @router.patch("/api/vehicles/{vehicle_id}", status_code=status.HTTP_201_CREATED)
@@ -82,7 +87,7 @@ def get_vehicle(
     conn=Depends(get_db),
 ):
     cursor = conn.cursor()
-    cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volumn_capacity, vehicle_status, fleet_id, driver_id FROM Vehicles WHERE vehicle_id = %s AND is_deleted = 0", (vehicle_id,))
+    cursor.execute("SELECT vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, vehicle_status, fleet_id, driver_id FROM Vehicles WHERE vehicle_id = %s AND is_deleted = 0", (vehicle_id,))
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录")
@@ -125,7 +130,7 @@ def get_vehicles_of_fleet(
     cursor.execute("SELECT COUNT(*) AS total FROM Vehicles WHERE fleet_id = %s AND is_deleted = 0 AND (vehicle_id LIKE %s)", (fleet_id, f"%{q}%"))
     total = cursor.fetchone()["total"]
 
-    cursor.execute("SELECT v.vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volumn_capacity, vehicle_status, fleet_id, person_id AS driver_id FROM Vehicles v JOIN Assignments a ON v.vehicle_id = a.vehicle_id WHERE fleet_id = %s AND is_deleted = 0 AND (v.vehicle_id LIKE %s) ORDER BY v.vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (fleet_id, f"%{q}%", offset, limit))
+    cursor.execute("SELECT v.vehicle_id, max_weight AS vehicle_load_capacity, max_volume AS vehicle_volume_capacity, vehicle_status, fleet_id, person_id AS driver_id FROM Vehicles v LEFT JOIN Assignments a ON v.vehicle_id = a.vehicle_id WHERE fleet_id = %s AND is_deleted = 0 AND (v.vehicle_id LIKE %s) ORDER BY v.vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY", (fleet_id, f"%{q}%", offset, limit))
     rows = cursor.fetchall()
     data = [Vehicle(**r) for r in rows]
 

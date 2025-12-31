@@ -124,8 +124,13 @@ def update_fleet_manager(fleet_id: int, manager_id: str, updates: FleetManagerUp
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车队记录")
             del update_data["fleet_name"]
         if update_data:
-            set_clause = ", ".join(f"{k} = %s" for k in update_data)
-            values = list(update_data.values()) + [manager_id[1:]]
+            update_data_manager = {}
+            if "manager_name" in update_data:
+                update_data_manager["person_name"] = update_data["manager_name"]
+            if "manager_contact" in update_data:
+                update_data_manager["person_contact"] = update_data["manager_contact"]
+            set_clause = ", ".join(f"{k} = %s" for k in update_data_manager)
+            values = list(update_data_manager.values()) + [manager_id[1:]]
             cursor.execute(
                 f"UPDATE Managers SET {set_clause} WHERE person_id = %s AND is_deleted = 0",
                 values,
@@ -134,9 +139,12 @@ def update_fleet_manager(fleet_id: int, manager_id: str, updates: FleetManagerUp
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到主管记录")
         conn.commit()
         return {"detail": "车队信息和主管信息更新成功"}
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新车队信息和主管信息失败") from e
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"更新车队信息和主管信息失败: {e}") from e
 
 
 

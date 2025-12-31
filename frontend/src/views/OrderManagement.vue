@@ -177,7 +177,7 @@ async function completeVehicle(query: string | undefined) {
 
             // 后端返回 VehicleView 时会带 remaining_*；如果没带就不做容量过滤。
             const remW = Number(rec['remaining_load_capacity'])
-            const remV = Number(rec['remaining_volumn_capacity'])
+            const remV = Number(rec['remaining_volume_capacity'])
             const hasRemW = Number.isFinite(remW)
             const hasRemV = Number.isFinite(remV)
             const hasNeedW = Number.isFinite(needW)
@@ -383,8 +383,8 @@ const pendingCreateColumns: readonly Columns[] = OrderColumns.filter(c =>
                                     状态：{{ String(option?.vehicle_status ?? '') }}
                                     <span v-if="option?.remaining_load_capacity != null">｜剩余载重：{{
                                         String(option?.remaining_load_capacity) }}</span>
-                                    <span v-if="option?.remaining_volumn_capacity != null">｜剩余容积：{{
-                                        String(option?.remaining_volumn_capacity) }}</span>
+                                    <span v-if="option?.remaining_volume_capacity != null">｜剩余容积：{{
+                                        String(option?.remaining_volume_capacity) }}</span>
                                 </span>
                             </div>
                         </template>

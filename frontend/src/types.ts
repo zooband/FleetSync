@@ -95,7 +95,7 @@ const VehicleSchema = [
         },
     },
     { key: 'vehicle_load_capacity', label: '载重上限', type: 'number' },
-    { key: 'vehicle_volumn_capacity', label: '容积上限', type: 'number' },
+    { key: 'vehicle_volume_capacity', label: '容积上限', type: 'number' },
     {
         key: 'remaining_load_capacity',
         label: '剩余载重',
@@ -104,7 +104,7 @@ const VehicleSchema = [
         required: false,
     },
     {
-        key: 'remaining_volumn_capacity',
+        key: 'remaining_volume_capacity',
         label: '剩余容积',
         type: 'number',
         editable: false,

@@ -87,7 +87,7 @@ async function confirmFleetEdit() {
 
     fleetEditSubmitting.value = true
     try {
-        const res = await apiFetch(`/api/fleets/${fleetId.value}`, {
+        const res = await apiFetch(`/api/fleets/${fleetId.value}/manager/${fleetDetail.value?.manager_id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -337,7 +337,7 @@ async function createFleetVehicle(item: Partial<Vehicle>) {
     if (!vehicle_regex.test(String(item.vehicle_id))) {
         throw new Error(`无效的车牌号格式: ${item.vehicle_id}。示例: 京A12345、沪B6789挂`)
     }
-    const res = await apiFetch('/api/vehicles', {
+    const res = await apiFetch(`/api/fleets/${fleetId.value}/vehicles`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...item, fleet_id: fleetId.value }),
