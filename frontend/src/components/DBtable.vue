@@ -225,8 +225,14 @@ function displayValue(row: Record<string, unknown>, col: Columns): string {
     if (col.type === 'foreign') {
         if (v && typeof v === 'object' && !Array.isArray(v)) {
             const labelKey = col.foreign?.labelKey
+            const valueKey = col.foreign?.valueKey
             if (labelKey && (v as Record<string, unknown>)[labelKey] != null) {
-                return String((v as Record<string, unknown>)[labelKey])
+                const label = String((v as Record<string, unknown>)[labelKey])
+                if (col.showIdInDisplay && valueKey && (v as Record<string, unknown>)[valueKey] != null) {
+                    const id = String((v as Record<string, unknown>)[valueKey])
+                    return `${label} (ID:${id})`
+                }
+                return label
             }
         }
         return String(v ?? '')
@@ -521,7 +527,14 @@ watch(
                             inputClass="w-full" :delay="300" :forceSelection="true"
                             :suggestions="foreignSuggestions[field] ?? []" :optionLabel="col.foreign?.labelKey"
                             @complete="completeForeign(col, $event.query)" :minLength="0" :completeOnFocus="true"
-                            :dropdown="true" />
+                            :dropdown="true">
+                            <template v-if="col.showIdInOption" #option="{ option }">
+                                <div class="flex flex-col">
+                                    <span>{{ String(col.foreign?.labelKey ? (option as any)?.[col.foreign.labelKey] ?? '' : '') }}</span>
+                                    <span class="text-xs text-gray-500">{{ String(col.foreign?.valueKey ? (option as any)?.[col.foreign.valueKey] ?? '' : '') }}</span>
+                                </div>
+                            </template>
+                        </AutoComplete>
                     </template>
                     <template v-else>
                         <Select :modelValue="asString((data as Record<string, FormValue>)[field])"
@@ -573,7 +586,14 @@ watch(
                         <AutoComplete v-model="createForm[field.key]" class="w-full" inputClass="w-full" :delay="300"
                             :forceSelection="true" :suggestions="foreignSuggestions[field.key] ?? []"
                             :optionLabel="field.foreign?.labelKey" @complete="completeForeign(field, $event.query)"
-                            :minLength="0" :completeOnFocus="true" :dropdown="true" />
+                            :minLength="0" :completeOnFocus="true" :dropdown="true">
+                            <template v-if="field.showIdInOption" #option="{ option }">
+                                <div class="flex flex-col">
+                                    <span>{{ String(field.foreign?.labelKey ? (option as any)?.[field.foreign.labelKey] ?? '' : '') }}</span>
+                                    <span class="text-xs text-gray-500">{{ String(field.foreign?.valueKey ? (option as any)?.[field.foreign.valueKey] ?? '' : '') }}</span>
+                                </div>
+                            </template>
+                        </AutoComplete>
                     </template>
                     <template v-else>
                         <Select :modelValue="asString(createForm[field.key])"
