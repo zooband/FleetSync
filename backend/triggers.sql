@@ -253,3 +253,23 @@ BEGIN
     END
 END;
 GO
+
+
+CREATE TRIGGER trg_IncidentInsert_SetVehicleToException
+ON Incidents
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- 建议加上防递归判断，防止与其他车辆触发器冲突
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
+
+    UPDATE v
+    SET v.vehicle_status = N'异常' -- 修正点：N与单引号紧贴，且使用单引号
+    FROM Vehicles v
+    INNER JOIN inserted i ON v.vehicle_id = i.vehicle_id
+    WHERE v.is_deleted = 0;
+END;
+GO
+    
