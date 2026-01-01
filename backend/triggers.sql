@@ -216,3 +216,40 @@ BEGIN
         DEALLOCATE CancelledOrdersCursor;
     END
 END;
+
+GO
+CREATE TRIGGER trg_IncidentHandle_SyncVehicleStatus
+ON Incidents
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- 只有当处理状态从“未处理”变为“已处理”时才触发
+    IF UPDATE(handle_status)
+    BEGIN
+        -- 针对当前更新的每一条异常记录进行联动
+        UPDATE v
+        SET v.vehicle_status = 
+            CASE 
+                -- 逻辑 A：如果是运输中出的异常，处理完后恢复为“运输中”
+                WHEN i.incident_type = N'运输中异常' THEN N'运输中'
+                -- 逻辑 B：如果是空闲时出的异常，处理完后恢复为“空闲”
+                WHEN i.incident_type = N'空闲时异常' THEN N'空闲'
+                -- 兜底逻辑：如果不明确，根据订单表是否有未完成订单来判断
+                ELSE 
+                    CASE 
+                        WHEN EXISTS (SELECT 1 FROM Orders o WHERE o.vehicle_id = v.vehicle_id AND o.order_status IN (N'装货中', N'运输中')) 
+                        THEN N'运输中' 
+                        ELSE N'空闲' 
+                    END
+            END
+        FROM Vehicles v
+        INNER JOIN inserted i ON v.vehicle_id = i.vehicle_id
+        INNER JOIN deleted d ON i.incident_id = d.incident_id
+        WHERE d.handle_status = N'未处理' 
+          AND i.handle_status = N'已处理'
+          AND v.vehicle_status = N'异常'; -- 只有当前车辆确实在“异常”状态才执行回转
+    END
+END;
+GO
