@@ -9,9 +9,17 @@ from app.auth_core import require_admin_or_manager, require_admin_manager_or_dri
 router = APIRouter()
 
 
+class DriverRef(BaseModel):
+    person_id: str
+    person_name: str
+
+
 class Incident(BaseModel):
     incident_id: int
-    driver_id: str
+    # 兼容两种返回：
+    # 1) 旧格式："D5"
+    # 2) 新格式：{"person_id": "D5", "person_name": "斯基"}
+    driver_id: str | DriverRef
     vehicle_id: str
     occurrence_time: date
     incident_type: str
@@ -150,9 +158,11 @@ def list_incidents(
         )
         total = cursor.fetchone()["total"]
         cursor.execute(
-            "SELECT i.incident_id, 'D' + CAST(i.driver_id AS NVARCHAR) AS driver_id, i.vehicle_id, i.occurrence_time, i.incident_type, "
-            "i.fine_amount, i.incident_description, i.handle_status AS handle_status "
-            "FROM Incidents i JOIN Vehicles v ON i.vehicle_id = v.vehicle_id "
+            "SELECT i.incident_id, 'D' + CAST(i.driver_id AS NVARCHAR) AS driver_id, d.person_name AS driver_name, "
+            "i.vehicle_id, i.occurrence_time, i.incident_type, i.fine_amount, i.incident_description, i.handle_status AS handle_status "
+            "FROM Incidents i "
+            "JOIN Vehicles v ON i.vehicle_id = v.vehicle_id "
+            "LEFT JOIN Drivers d ON i.driver_id = d.person_id AND d.is_deleted = 0 "
             "WHERE i.is_deleted = 0 AND v.is_deleted = 0 AND v.fleet_id = %s "
             "ORDER BY i.incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
             (auth_info.get("fleet_id"), offset, limit),
@@ -161,13 +171,25 @@ def list_incidents(
         cursor.execute("SELECT COUNT(*) AS total FROM Incidents WHERE is_deleted = 0")
         total = cursor.fetchone()["total"]
         cursor.execute(
-            "SELECT incident_id, 'D' + CAST(driver_id AS NVARCHAR) AS driver_id, vehicle_id, occurrence_time, incident_type, fine_amount, incident_description, handle_status "
-            "FROM Incidents WHERE is_deleted = 0 ORDER BY incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+            "SELECT i.incident_id, 'D' + CAST(i.driver_id AS NVARCHAR) AS driver_id, d.person_name AS driver_name, "
+            "i.vehicle_id, i.occurrence_time, i.incident_type, i.fine_amount, i.incident_description, i.handle_status "
+            "FROM Incidents i "
+            "LEFT JOIN Drivers d ON i.driver_id = d.person_id AND d.is_deleted = 0 "
+            "WHERE i.is_deleted = 0 "
+            "ORDER BY i.incident_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
             (offset, limit),
         )
 
     rows = cursor.fetchall()
-    data = [Incident(**r) for r in rows]
+    data: list[Incident] = []
+    for r in rows:
+        # r['driver_id'] 形如 'D5'；driver_name 可能为 None（如果司机已软删除）
+        driver_id = r.get("driver_id")
+        driver_name = r.get("driver_name")
+        if isinstance(driver_id, str) and isinstance(driver_name, str) and driver_name.strip():
+            r["driver_id"] = {"person_id": driver_id, "person_name": driver_name}
+        r.pop("driver_name", None)
+        data.append(Incident(**r))
     return IncidentSelect(data=data, total=total)
 
 
@@ -232,20 +254,31 @@ def get_driver_incidents(
     params_with_pagination = params + [offset, limit]
     cursor.execute(
         f"""
-        SELECT incident_id, 'D' + CAST(driver_id AS NVARCHAR) AS driver_id, vehicle_id, 
-               occurrence_time, 
-               incident_type, 
-               fine_amount, 
-               incident_description, 
-               handle_status
-        FROM Incidents 
+        SELECT i.incident_id,
+               'D' + CAST(i.driver_id AS NVARCHAR) AS driver_id,
+               d.person_name AS driver_name,
+               i.vehicle_id,
+               i.occurrence_time,
+               i.incident_type,
+               i.fine_amount,
+               i.incident_description,
+               i.handle_status
+        FROM Incidents i
+        LEFT JOIN Drivers d ON i.driver_id = d.person_id AND d.is_deleted = 0
         WHERE {where_sql}
-        ORDER BY incident_id 
+        ORDER BY i.incident_id
         OFFSET %s ROWS FETCH NEXT %s ROWS ONLY
         """,
         params_with_pagination
     )
     rows = cursor.fetchall()
-    data = [Incident(**r) for r in rows]
+    data: list[Incident] = []
+    for r in rows:
+        driver_id = r.get("driver_id")
+        driver_name = r.get("driver_name")
+        if isinstance(driver_id, str) and isinstance(driver_name, str) and driver_name.strip():
+            r["driver_id"] = {"person_id": driver_id, "person_name": driver_name}
+        r.pop("driver_name", None)
+        data.append(Incident(**r))
 
     return IncidentSelect(data=data, total=total)

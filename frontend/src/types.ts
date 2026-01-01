@@ -17,6 +17,12 @@ interface FieldDef {
         limitParam?: string // 默认 limit
         offsetParam?: string // 默认 offset
     }
+
+    // 仅影响 UI 展示：
+    // - showIdInDisplay: 表格/卡片展示时，foreign 字段显示为 "名称(ID:主键)"
+    // - showIdInOption: foreign AutoComplete 下拉项额外显示主键（用于区分重名）
+    showIdInDisplay?: boolean
+    showIdInOption?: boolean
 }
 
 export interface Columns extends Omit<FieldDef, 'editable' | 'isId'> {
@@ -150,6 +156,8 @@ const IncidentSchema = [
         key: 'driver_id',
         label: '关联司机',
         type: 'foreign',
+        showIdInDisplay: true,
+        showIdInOption: true,
         foreign: {
             endpoint: '/api/drivers',
             valueKey: 'person_id',

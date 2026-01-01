@@ -24,10 +24,21 @@ async function fillFieldInDialog(dialog: Locator, label: string, value: string |
     await container.locator('input').first().fill(String(value))
 }
 
-async function selectOptionInDialog(dialog: Locator, label: string, optionName: string) {
+async function selectOptionInDialog(
+    dialog: Locator,
+    label: string,
+    option: { name: string; id?: string } | string,
+) {
+    const opt = typeof option === 'string' ? { name: option } : option
     const container = dialog.locator('label', { hasText: label }).first().locator('..')
     await container.getByRole('combobox').click()
-    await dialog.page().getByRole('option', { name: optionName }).click()
+
+    const options = dialog.page().locator('li[role="option"]')
+    const target = opt.id
+        ? options.filter({ hasText: opt.name }).filter({ hasText: opt.id }).first()
+        : dialog.page().getByRole('option', { name: opt.name })
+
+    await target.click()
 }
 
 test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }) => {
@@ -221,9 +232,10 @@ test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }
     const cancelOrderCard = page.getByRole('button', {
         name: new RegExp(`${orderCancel.origin}.*${orderCancel.dest}`),
     })
+    const cancelOrderId = await extractFirstMatch(cancelOrderCard, /^(\d+)/)
     await cancelOrderCard.getByRole('button', { name: '取消订单' }).click()
     await page.getByRole('tab', { name: '已取消' }).click()
-    await expect(page.getByLabel('已取消')).toContainText(orderCancel.dest)
+    await expect(page.getByLabel('已取消')).toContainText(`${cancelOrderId}`)
     await page.getByRole('tab', { name: '待处理' }).click()
 
     // 分配车辆：待处理 -> 装货中
@@ -270,6 +282,7 @@ test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }
 
     // 运输中 -> 已完成/车辆回空闲
     await vehicleCardB2.getByRole('button', { name: '确认送达', exact: true }).click()
+    await page.getByRole('button', { name: '刷新' }).first().click()
     await expect(vehicleCardB2).toContainText('状态：空闲')
     await expect(vehicleCardB2).toContainText('剩余载重：100000')
     await expect(vehicleCardB2).toContainText('剩余容积：500000')
@@ -286,7 +299,7 @@ test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }
 
     await page.getByRole('button', { name: '添加记录' }).click()
     const iDialog = page.getByRole('dialog', { name: /^添加/ })
-    await selectOptionInDialog(iDialog, '关联司机', driver1.name)
+    await selectOptionInDialog(iDialog, '关联司机', { name: driver1.name, id: driverId1 })
     await selectOptionInDialog(iDialog, '车辆', vehicleB)
     await fillFieldInDialog(iDialog, '时间', todayISO())
     await selectOptionInDialog(iDialog, '异常类型', '空闲时异常')
