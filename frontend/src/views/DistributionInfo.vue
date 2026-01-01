@@ -147,7 +147,7 @@ async function updateCenterFleet(fleet_id: Fleet['fleet_id'], updates: Partial<F
     if (updates.fleet_name != null) payload.fleet_name = updates.fleet_name
 
     const res = await apiFetch(
-        `/api/distribution-centers/${centerId.value}/fleets/${encodeURIComponent(String(fleet_id))}`,
+        `/api/fleets/${encodeURIComponent(String(fleet_id))}`,
         {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -162,7 +162,7 @@ async function deleteCenterFleet(fleet_id: Fleet['fleet_id']) {
     if (!Number.isFinite(centerId.value)) throw new Error('无效的配送中心ID')
 
     const res = await apiFetch(
-        `/api/distribution-centers/${centerId.value}/fleets/${encodeURIComponent(String(fleet_id))}`,
+        `/api/fleets/${encodeURIComponent(String(fleet_id))}`,
         { method: 'DELETE' }
     )
 
