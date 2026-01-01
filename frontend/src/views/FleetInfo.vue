@@ -504,7 +504,7 @@ if (reportMonth.value == null) {
 </script>
 
 <template>
-    <div class="p-6">
+    <div class="p-6 space-y-6">
         <div class="flex items-center justify-between">
             <h2 class="text-xl font-bold">车队详情</h2>
             <PrimeButton v-if="isAdmin" size="small" label="编辑" @click="openFleetEdit" />
@@ -521,7 +521,7 @@ if (reportMonth.value == null) {
             </div>
             <div class="flex flex-col">
                 <span class="text-sm text-gray-500">调度主管名</span>
-                <span class="text-base">{{ fleetDetail?.manager_name ?? '-' }}</span>
+                <span class="text-base">{{ fleetDetail ? `${fleetDetail.manager_name}（${fleetDetail.manager_id}）` : '-' }}</span>
             </div>
             <div class="flex flex-col">
                 <span class="text-sm text-gray-500">调度主管联系方式</span>

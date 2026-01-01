@@ -224,7 +224,7 @@ watch(
 </script>
 
 <template>
-    <div class="p-6">
+    <div class="p-6 space-y-6">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-bold">配送中心详情</h2>
             <PrimeButton v-if="isAdmin" size="small" label="编辑" @click="openCenterEdit" />
