@@ -348,7 +348,7 @@ def get_driver_incidents(
     where_sql = " AND ".join(where_clauses)
 
     # COUNT 查询
-    cursor.execute(f"SELECT COUNT(*) AS total FROM Incidents WHERE {where_sql}", params)
+    cursor.execute(f"SELECT COUNT(*) AS total FROM Incidents i WHERE {where_sql}", params)
     total = cursor.fetchone()["total"]
 
     # 分页查询：注意 offset 和 limit 必须是最后两个参数

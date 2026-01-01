@@ -299,38 +299,56 @@ test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }
 
     await page.getByRole('button', { name: '添加记录' }).click()
     const iDialog = page.getByRole('dialog', { name: /^添加/ })
-    await selectOptionInDialog(iDialog, '关联司机', { name: driver1.name, id: driverId1 })
     await selectOptionInDialog(iDialog, '车辆', vehicleB)
-    await fillFieldInDialog(iDialog, '时间', todayISO())
-    await selectOptionInDialog(iDialog, '异常类型', '空闲时异常')
     await fillFieldInDialog(iDialog, '异常描述', '超速报警')
     await fillFieldInDialog(iDialog, '罚款金额', 400)
-    await selectOptionInDialog(iDialog, '异常处理状态', '未处理')
     await iDialog.getByRole('button', { name: '确认' }).click()
 
-    const incidentRow = page
+    const incidentRow = page.locator('table tbody tr').last()
+    const incidentId = await incidentRow.locator('td').first().textContent()
+    await expect(incidentRow).toContainText(driverId1)
+    await expect(incidentRow).toContainText(vehicleB)
+    await expect(incidentRow).toContainText('超速报警')
+    await expect(incidentRow).toContainText('400')
+    await expect(incidentRow).toContainText('未处理')
+
+    // 回到车队A：车辆应显示“异常”状态，异常事件总数应为1，罚款金额应为400
+    await page.goto(`${base}/fleet/${fleetIdA}`)
+    await expect(page.getByRole('main')).toContainText(vehicleB)
+    await expect(vehicleCardB).toContainText('状态：异常')
+    await expect(page.getByRole('main')).toContainText(`异常事件总数1`)
+    await expect(page.getByRole('main')).toContainText(`累计罚款金额400`)
+
+    // 进入车辆所归属的司机主页，应能看到该异常事件记录
+    await page.goto(`${base}/personnels/${driverId1}`)
+    await expect(page.getByRole('heading', { name: `人员信息详情（ID：${driverId1}）` })).toBeVisible()
+
+    // 验证异常事件表格中存在该事件
+    const driverIncidentRow = page
         .locator('table tbody tr')
         .filter({ hasText: driverId1 })
         .filter({ hasText: vehicleB })
-        .first()
-    await expect(incidentRow).toContainText(todayISO())
-    await expect(incidentRow).toContainText('未处理')
-    const incidentId = await extractFirstMatch(incidentRow, /^(\d+)/)
+        .filter({ hasText: incidentId as string })
+    await expect(driverIncidentRow).toContainText(todayISO())
+    await expect(driverIncidentRow).toContainText('未处理')
 
     // 行内编辑：未处理 -> 已处理
-    await incidentRow.getByRole('button', { name: 'Row Edit' }).click()
-    await page.getByRole('combobox', { name: '未处理' }).click();
-    await page.getByText('已处理').click();
-    await incidentRow.getByRole('button', { name: 'Save Edit' }).click()
+    await page.goto(`${base}/incident`)
+    await incidentRow.getByRole('button', { name: '标记为已处理' }).click()
     await expect(incidentRow).toContainText('已处理')
 
-    // 回到车队A：车辆应显示“异常”状态（后端/前端如果有该联动）
+    // 回到车队A：车辆应显示“空闲”状态
     await page.goto(`${base}/fleet/${fleetIdA}`)
     await expect(page.getByRole('main')).toContainText(vehicleB)
-    await expect(page.getByRole('main')).toContainText(`异常事件总数`)
+    await expect(vehicleCardB2).toContainText('状态：空闲')
 
-    // 最终断言：异常记录存在、处理状态正确
-    await navBySideButton(page, '异常事件')
-    await expect(page.getByRole('main')).toContainText(incidentId)
-    await expect(page.getByRole('main')).toContainText('已处理')
+    // 再次进入司机主页，确认异常事件状态已更新
+    await page.goto(`${base}/personnels/${driverId1}`)
+    await expect(page.getByRole('heading', { name: `人员信息详情（ID：${driverId1}）` })).toBeVisible()
+    const updatedIncidentRow = page
+        .locator('table tbody tr')
+        .filter({ hasText: driverId1 })
+        .filter({ hasText: vehicleB })
+        .filter({ hasText: incidentId as string })
+    await expect(updatedIncidentRow).toContainText('已处理')
 })
