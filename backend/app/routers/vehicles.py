@@ -27,6 +27,7 @@ class VehicleUpdate(BaseModel):
     vehicle_id: str | None = None
     max_weight: float | None = None
     max_volume: float | None = None
+    vehicle_status: str | None = None
 
 
 class VehicleCreate(BaseModel):
@@ -78,13 +79,47 @@ def insert_vehicle(fleet_id: int, vehicle: VehicleCreate, auth_info=Depends(requ
 
 
 @router.patch("/api/vehicles/{vehicle_id}", status_code=status.HTTP_201_CREATED)
-def update_vehicle(vehicle_id: str, updates: VehicleUpdate, auth_info=Depends(require_admin), conn=Depends(get_db)):
+def update_vehicle(
+    vehicle_id: str,
+    updates: VehicleUpdate,
+    auth_info=Depends(require_admin_or_vehicle_fleet_manager),
+    conn=Depends(get_db),
+):
     update_data = updates.model_dump(exclude_unset=True)
     if not update_data:
         return {"detail": "没有提供更新内容"}
     
     try:
+        role = auth_info.get("role")
+
+        # 不允许通过 PATCH 修改主键
+        if "vehicle_id" in update_data:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不允许修改车辆ID")
+
         cursor = conn.cursor()
+
+        # 调度主管：仅允许在 空闲/维修中 之间切换 vehicle_status
+        if role == "manager":
+            allowed = {"vehicle_status"}
+            extra_keys = set(update_data.keys()) - allowed
+            if extra_keys:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足：调度主管仅允许切换车辆维修状态")
+
+            next_status = str(update_data.get("vehicle_status") or "").strip()
+            if next_status not in {"空闲", "维修中"}:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="vehicle_status 仅支持 空闲/维修中")
+
+            cursor.execute(
+                "SELECT vehicle_status FROM Vehicles WHERE vehicle_id = %s AND is_deleted = 0",
+                (vehicle_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录")
+            current = str(row.get("vehicle_status") or "")
+            if current in {"运输中", "装货中"}:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="车辆存在进行中的运单，无法切换维修状态")
+
         set_clause = ", ".join(f"{k} = %s" for k in update_data)
         update_values = list(update_data.values())
         cursor.execute(
@@ -93,6 +128,9 @@ def update_vehicle(vehicle_id: str, updates: VehicleUpdate, auth_info=Depends(re
         )
         conn.commit()
         return {"detail": "车辆信息更新成功"}
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
