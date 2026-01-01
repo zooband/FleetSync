@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends Record<string, unknown>, IdKey extends keyof T = any">
-import { ref, computed, watch, onMounted, toRefs, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, toRefs, nextTick, useSlots } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import InputText from 'primevue/inputtext'
@@ -33,6 +33,9 @@ const props = withDefaults(
 )
 
 const { operations, columns, allowCreate, allowEdit, allowDelete } = toRefs(props)
+
+const slots = useSlots()
+const hasRowActions = computed(() => !!slots['row-actions'])
 
 const createVisible = ref(false)
 const submitting = ref(false)
@@ -546,6 +549,13 @@ watch(
 
             <!-- 行编辑按钮 -->
             <Column v-if="editableEnabled" :rowEditor="true" style="width: 6rem" />
+
+            <!-- 自定义行操作（可选） -->
+            <Column v-if="hasRowActions" style="width: 10rem">
+                <template #body="{ data }">
+                    <slot name="row-actions" :data="data" />
+                </template>
+            </Column>
 
             <!-- 删除按钮 -->
             <Column v-if="deletableEnabled" style="width:6rem">

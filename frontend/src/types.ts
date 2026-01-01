@@ -158,6 +158,8 @@ const IncidentSchema = [
         type: 'foreign',
         showIdInDisplay: true,
         showIdInOption: true,
+        editable: false,
+        required: false,
         foreign: {
             endpoint: '/api/drivers',
             valueKey: 'person_id',
@@ -168,22 +170,25 @@ const IncidentSchema = [
         key: 'vehicle_id',
         label: '车辆',
         type: 'foreign',
+        // 新增异常时：只能选择“非异常状态 + 已分配司机”的车辆
         foreign: {
-            endpoint: '/api/vehicles',
+            endpoint: '/api/incidents/available-vehicles',
             valueKey: 'vehicle_id',
             labelKey: 'vehicle_id',
         },
     },
-    { key: 'occurrence_time', label: '时间', type: 'date' },
-    { key: 'incident_type', label: '异常类型', type: 'select', options: ['运输中异常', '空闲时异常'] },
+    { key: 'occurrence_time', label: '时间', type: 'date', editable: false, required: false },
+    { key: 'incident_type', label: '异常类型', type: 'select', options: ['运输中异常', '空闲时异常'], editable: false, required: false },
     {
         key: 'incident_description',
         label: '异常描述',
         type: 'text',
         suggestions: ['货物破损', '车辆故障', '严重延误', '超速报警'],
+        // 新增时允许填写；编辑在页面层面禁用
+        required: false,
     },
-    { key: 'fine_amount', label: '罚款金额', type: 'number' },
-    { key: 'handle_status', label: '异常处理状态', type: 'select', options: ['未处理', '已处理'] },
+    { key: 'fine_amount', label: '罚款金额', type: 'number', required: false },
+    { key: 'handle_status', label: '异常处理状态', type: 'select', options: ['未处理', '已处理'], editable: false, required: false },
 ] as const satisfies readonly FieldDef[]
 
 const FleetSchema = [

@@ -29,13 +29,11 @@ class Incident(BaseModel):
 
 
 class IncidentCreate(BaseModel):
-    driver_id: str
     vehicle_id: str
-    occurrence_time: date
-    incident_type: str
-    fine_amount: float
-    incident_description: str
-    handle_status: str
+    # 说明：作业要求由后端自动推导司机/时间/类型/处理状态，因此创建时仅需传 vehicle_id
+    incident_description: str | None = None
+    fine_amount: float | None = None
+
 
 
 class IncidentUpdate(BaseModel):
@@ -60,33 +58,60 @@ def insert_incident(
     conn=Depends(get_db),
 ):
     try:
-        if auth_info.get("role") == "manager":
-            cursor = conn.cursor(as_dict=False)
-            cursor.execute(
-                "SELECT 1 FROM Vehicles WHERE vehicle_id = %s AND fleet_id = %s AND is_deleted = 0",
-                (incident.vehicle_id, auth_info.get("fleet_id")),
-            )
-            if cursor.fetchone() is None:
+        role = auth_info.get("role")
+        cursor = conn.cursor()
+
+        # 车辆必须存在且非异常状态
+        cursor.execute(
+            "SELECT vehicle_status, fleet_id FROM Vehicles WHERE vehicle_id = %s AND is_deleted = 0",
+            (incident.vehicle_id,),
+        )
+        v = cursor.fetchone()
+        if not v:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到车辆记录")
+
+        vehicle_status = str(v.get("vehicle_status") or "")
+        if vehicle_status == "异常":
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="车辆处于异常状态，无法新增异常记录")
+
+        # 车辆必须已分配司机（Assignments），且司机未被软删除
+        cursor.execute(
+            "SELECT a.person_id AS driver_id, d.fleet_id AS driver_fleet_id "
+            "FROM Assignments a "
+            "JOIN Drivers d ON a.person_id = d.person_id AND d.is_deleted = 0 "
+            "WHERE a.vehicle_id = %s",
+            (incident.vehicle_id,),
+        )
+        arow = cursor.fetchone()
+        if not arow:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="该车辆未分配司机，无法新增异常记录")
+
+        # 调度主管：只能为自己车队内车辆新增异常（车辆和分配司机都必须属于该车队）
+        if role == "manager":
+            fleet_id = auth_info.get("fleet_id")
+            if v.get("fleet_id") != fleet_id or arow.get("driver_fleet_id") != fleet_id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该车辆不属于你管理的车队")
 
-            cursor.execute(
-                "SELECT 1 FROM Drivers WHERE person_id = %s AND fleet_id = %s AND is_deleted = 0",
-                (incident.driver_id.lstrip("D").lstrip("d"), auth_info.get("fleet_id")),
-            )
-            if cursor.fetchone() is None:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该司机不属于你管理的车队")
+        driver_id = int(arow.get("driver_id"))
+        incident_type = "运输中异常" if vehicle_status == "运输中" else "空闲时异常"
+        occurrence_time = date.today()
+        handle_status = "未处理"
 
-        cursor = conn.cursor()
+        incident_description = (incident.incident_description or "").strip()
+        fine_amount = float(incident.fine_amount) if incident.fine_amount is not None else 0.0
+
+        # 由于表结构 incident_description NOT NULL，这里默认空字符串；fine_amount 默认 0
         cursor.execute(
-            "INSERT INTO Incidents (vehicle_id, driver_id, incident_type, fine_amount, incident_description, handle_status, occurrence_time) VALUES (%s, %s, %s, %s, %s, %s, %s);",
+            "INSERT INTO Incidents (vehicle_id, driver_id, incident_type, fine_amount, incident_description, handle_status, occurrence_time) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s);",
             (
                 incident.vehicle_id,
-                incident.driver_id.lstrip("D").lstrip("d"),
-                incident.incident_type,
-                incident.fine_amount,
-                incident.incident_description,
-                incident.handle_status,
-                incident.occurrence_time,
+                driver_id,
+                incident_type,
+                fine_amount,
+                incident_description,
+                handle_status,
+                occurrence_time,
             ),
         )
         cursor.execute("SELECT SCOPE_IDENTITY() AS incident_id;")
@@ -121,16 +146,19 @@ def update_incident(
             if cursor.fetchone() is None:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权操作该异常记录")
 
-        if "driver_id" in update_data and update_data["driver_id"] is not None:
-            # 允许传 D<数字> 或纯数字
-            raw = str(update_data["driver_id"]).lstrip("D").lstrip("d")
-            update_data["driver_id"] = int(raw) if raw.isdigit() else update_data["driver_id"]
+        # 作业要求：编辑仅允许把处理状态标记为“已处理”
+        allowed_keys = {"handle_status"}
+        extra = set(update_data.keys()) - allowed_keys
+        if extra:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="仅允许更新异常处理状态")
 
-        set_clause = ", ".join(f"{k} = %s" for k in update_data)
-        values = list(update_data.values()) + [incident_id]
+        next_status = str(update_data.get("handle_status") or "").strip()
+        if next_status != "已处理":
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="handle_status 仅支持设置为 已处理")
+
         cursor.execute(
-            f"UPDATE Incidents SET {set_clause} WHERE incident_id = %s AND is_deleted = 0",
-            values,
+            "UPDATE Incidents SET handle_status = %s WHERE incident_id = %s AND is_deleted = 0",
+            ("已处理", incident_id),
         )
         if cursor.rowcount == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到异常记录")
@@ -139,6 +167,79 @@ def update_incident(
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"更新异常记录失败: {e}") from e
+
+
+class VehicleOption(BaseModel):
+    vehicle_id: str
+
+
+class VehicleOptionSelect(BaseModel):
+    data: list[VehicleOption]
+    total: int
+
+
+@router.get("/api/incidents/available-vehicles", response_model=VehicleOptionSelect)
+def list_available_vehicles_for_incident(
+    q: str | None = Query(""),
+    limit: int = Query(10, ge=1),
+    offset: int = Query(0, ge=0),
+    auth_info=Depends(require_admin_or_manager),
+    conn=Depends(get_db),
+):
+    """用于异常新增的车辆下拉：仅返回“非异常状态 + 已分配司机(Assignments)”的车辆。"""
+    cursor = conn.cursor()
+
+    keyword = (q or "").strip()
+    like_kw = f"%{keyword}%"
+    role = auth_info.get("role")
+
+    if role == "manager":
+        fleet_id = auth_info.get("fleet_id")
+        cursor.execute(
+            "SELECT COUNT(*) AS total "
+            "FROM Vehicles v "
+            "JOIN Assignments a ON v.vehicle_id = a.vehicle_id "
+            "JOIN Drivers d ON a.person_id = d.person_id AND d.is_deleted = 0 "
+            "WHERE v.is_deleted = 0 AND v.vehicle_status <> N'异常' "
+            "AND v.fleet_id = %s AND d.fleet_id = %s "
+            "AND v.vehicle_id LIKE %s",
+            (fleet_id, fleet_id, like_kw),
+        )
+        total = cursor.fetchone()["total"]
+        cursor.execute(
+            "SELECT v.vehicle_id "
+            "FROM Vehicles v "
+            "JOIN Assignments a ON v.vehicle_id = a.vehicle_id "
+            "JOIN Drivers d ON a.person_id = d.person_id AND d.is_deleted = 0 "
+            "WHERE v.is_deleted = 0 AND v.vehicle_status <> N'异常' "
+            "AND v.fleet_id = %s AND d.fleet_id = %s "
+            "AND v.vehicle_id LIKE %s "
+            "ORDER BY v.vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+            (fleet_id, fleet_id, like_kw, offset, limit),
+        )
+    else:
+        cursor.execute(
+            "SELECT COUNT(*) AS total "
+            "FROM Vehicles v "
+            "JOIN Assignments a ON v.vehicle_id = a.vehicle_id "
+            "JOIN Drivers d ON a.person_id = d.person_id AND d.is_deleted = 0 "
+            "WHERE v.is_deleted = 0 AND v.vehicle_status <> N'异常' AND v.vehicle_id LIKE %s",
+            (like_kw,),
+        )
+        total = cursor.fetchone()["total"]
+        cursor.execute(
+            "SELECT v.vehicle_id "
+            "FROM Vehicles v "
+            "JOIN Assignments a ON v.vehicle_id = a.vehicle_id "
+            "JOIN Drivers d ON a.person_id = d.person_id AND d.is_deleted = 0 "
+            "WHERE v.is_deleted = 0 AND v.vehicle_status <> N'异常' AND v.vehicle_id LIKE %s "
+            "ORDER BY v.vehicle_id OFFSET %s ROWS FETCH NEXT %s ROWS ONLY",
+            (like_kw, offset, limit),
+        )
+
+    rows = cursor.fetchall()
+    data = [VehicleOption(vehicle_id=r.get("vehicle_id")) for r in rows]
+    return VehicleOptionSelect(data=data, total=total)
 
 
 @router.get("/api/incidents", response_model=IncidentSelect)
@@ -234,14 +335,14 @@ def get_driver_incidents(
     driver_id = person_id.lstrip("D")
 
     # 构建 WHERE 条件和参数
-    where_clauses = ["driver_id = %s", "is_deleted = 0"]
+    where_clauses = ["i.driver_id = %s", "i.is_deleted = 0"]
     params = [driver_id]
 
     if start:
-        where_clauses.append("occurrence_time >= %s")
+        where_clauses.append("i.occurrence_time >= %s")
         params.append(start)
     if end:
-        where_clauses.append("occurrence_time <= %s")
+        where_clauses.append("i.occurrence_time <= %s")
         params.append(end)
 
     where_sql = " AND ".join(where_clauses)

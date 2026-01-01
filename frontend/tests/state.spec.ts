@@ -319,8 +319,8 @@ test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }
 
     // 行内编辑：未处理 -> 已处理
     await incidentRow.getByRole('button', { name: 'Row Edit' }).click()
-    await incidentRow.getByRole('combobox').click()
-    await page.getByText('已处理', { exact: true }).click()
+    await page.getByRole('combobox', { name: '未处理' }).click();
+    await page.getByText('已处理').click();
     await incidentRow.getByRole('button', { name: 'Save Edit' }).click()
     await expect(incidentRow).toContainText('已处理')
 
