@@ -1,7 +1,7 @@
 from datetime import date
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel
-from app.db import get_db
+from app.db import get_db, format_db_error
 from app.auth_core import require_admin_manager_or_driver_self
 
 router = APIRouter()
@@ -98,10 +98,11 @@ def insert_order(order: OrderCreate, conn=Depends(get_db)):
         return {"detail": "订单创建成功", "order_id": order_id}
     except Exception as e:
         conn.rollback()
+        msg = format_db_error(e)
         # 捕获触发器抛出的 RAISERROR (如超载)
-        if "超出最大载重" in str(e):
-             raise HTTPException(status_code=400, detail="分配失败：车辆剩余载重不足")
-        raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
+        if "超出最大载重" in msg or "超出最大载重或容积" in msg:
+            raise HTTPException(status_code=400, detail="分配失败：车辆剩余载重不足")
+        raise HTTPException(status_code=500, detail=f"服务器错误: {msg}")
 
 @router.delete("/api/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_order(order_id: int, conn=Depends(get_db)):
@@ -176,7 +177,7 @@ def assign_order(order_id: int, order: OrderUpdate, conn=Depends(get_db)):
         return {"detail": "订单分配成功"}
     except Exception as e:
         conn.rollback()
-        # 捕获触发器抛出的 RAISERROR (如超载)
-        if "超出最大载重" in str(e):
-             raise HTTPException(status_code=400, detail="分配失败：车辆剩余载重不足")
-        raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
+        msg = format_db_error(e)
+        if "超出最大载重或容积" in msg:
+            raise HTTPException(status_code=400, detail="分配失败：车辆剩余载重不足")
+        raise HTTPException(status_code=500, detail=f"服务器错误: {msg}")
