@@ -41,7 +41,10 @@ async function selectOptionInDialog(
     await target.click()
 }
 
-test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }) => {
+test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page, context }) => {
+    // 开启录屏
+    await context.tracing.start({ screenshots: true, snapshots: true })
+
     test.setTimeout(120_000)
     const base = 'http://localhost:5173/#'
 
@@ -351,4 +354,7 @@ test('状态转移（去硬编码/补全输入/减少冗余）', async ({ page }
         .filter({ hasText: vehicleB })
         .filter({ hasText: incidentId as string })
     await expect(updatedIncidentRow).toContainText('已处理')
+
+    // 停止录屏并保存
+    await context.tracing.stop({ path: 'trace.zip' })
 })

@@ -11,20 +11,18 @@ BEGIN
     -- 检查是否更新了 order_status 字段
     IF UPDATE(order_status)
     BEGIN
-        -- 更新关联车辆的状态
-        -- 逻辑：当订单状态从'待处理'变为'装货中'，且关联车辆当前为'空闲'时触发
+
         UPDATE v
         SET v.vehicle_status = N'装货中'
         FROM Vehicles v
         INNER JOIN inserted i ON v.vehicle_id = i.vehicle_id
         INNER JOIN deleted d ON i.order_id = d.order_id
-        WHERE d.order_status = N'待处理'      -- 更新前状态
-          AND i.order_status = N'装货中'      -- 更新后状态
-          AND v.vehicle_status = N'空闲'     -- 前提条件：车辆必须空闲
-          AND v.is_deleted = 0;             -- 排除逻辑删除的车辆
+        WHERE d.order_status = N'待处理'     
+          AND i.order_status = N'装货中'     
+          AND v.vehicle_status = N'空闲'    
+          AND v.is_deleted = 0;            
 
-        -- 可选：如果车辆不是空闲状态，可以根据需求决定是否抛出错误（RAISERROR）
-        -- 但通常此类自动流转建议保持静默更新，或通过存储过程预先检查。
+
     END
 END;
 GO
@@ -43,7 +41,7 @@ BEGIN
         SELECT 
             'Drivers', 
             CAST(d.person_id AS NVARCHAR(20)), 
-            -- 记录变更前的完整旧数据
+     
             'Name: ' + d.person_name + 
             ' | Contact: ' + ISNULL(d.person_contact, 'N/A') + 
             ' | License: ' + d.driver_license,
@@ -62,7 +60,7 @@ BEGIN
     -- 只有处理状态从“未处理”变为“已处理”时触发
     IF UPDATE(handle_status)
     BEGIN
-        -- 使用 CTE 或子查询判断车辆应回流的状态
+      
         UPDATE v
         SET v.vehicle_status = 
             CASE 
@@ -116,9 +114,7 @@ BEGIN
     -- 1. 检查是否更新了 vehicle_status 字段
     IF UPDATE(vehicle_status)
     BEGIN
-        -- 2. 同步更新订单状态
-        -- 逻辑：当车辆状态变更为 '运输中'，
-        -- 将该车辆下所有处于 '装货中' 的订单同步更新为 '运输中'
+   
         UPDATE o
         SET o.order_status = N'运输中'
         FROM Orders o
@@ -138,18 +134,18 @@ ON Vehicles
 AFTER UPDATE
 AS BEGIN
     SET NOCOUNT ON;
-    IF TRIGGER_NESTLEVEL() > 1 RETURN; -- 防递归
+    IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
-    -- 检查是否更新了 vehicle_status 字段
+
     IF UPDATE(vehicle_status)
     BEGIN
         -- 定义表变量，用于暂存本次真正被更新的订单
         DECLARE @JustFinishedOrders TABLE (
             order_id INT,
-            vehicle_id NVARCHAR(50) -- 请确保长度与数据库定义一致
+            vehicle_id NVARCHAR(50) 
         );
 
-        -- 1. 更新订单状态，同时将受影响的订单ID输出到表变量中
+       
         UPDATE o
         SET o.order_status = N'已完成'
         OUTPUT inserted.order_id, inserted.vehicle_id INTO @JustFinishedOrders(order_id, vehicle_id)
@@ -160,7 +156,7 @@ AS BEGIN
           AND d.vehicle_status = N'运输中'      -- 更新前的车辆状态
           AND o.order_status = N'运输中';       -- 仅针对正在运输的订单
 
-        -- 2. 仅为刚刚完成的订单插入记录
+
         INSERT INTO CompletedOrder (order_id, person_id, completed_at)
         SELECT fo.order_id, a.person_id, CAST(GETDATE() AS DATE)
         FROM @JustFinishedOrders fo
@@ -228,15 +224,15 @@ BEGIN
     -- 只有当处理状态从“未处理”变为“已处理”时才触发
     IF UPDATE(handle_status)
     BEGIN
-        -- 针对当前更新的每一条异常记录进行联动
+   
         UPDATE v
         SET v.vehicle_status = 
             CASE 
-                -- 逻辑 A：如果是运输中出的异常，处理完后恢复为“运输中”
+             
                 WHEN i.incident_type = N'运输中异常' THEN N'运输中'
-                -- 逻辑 B：如果是空闲时出的异常，处理完后恢复为“空闲”
+        
                 WHEN i.incident_type = N'空闲时异常' THEN N'空闲'
-                -- 兜底逻辑：如果不明确，根据订单表是否有未完成订单来判断
+         
                 ELSE 
                     CASE 
                         WHEN EXISTS (SELECT 1 FROM Orders o WHERE o.vehicle_id = v.vehicle_id AND o.order_status IN (N'装货中', N'运输中')) 
@@ -262,11 +258,11 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- 建议加上防递归判断，防止与其他车辆触发器冲突
+ 
     IF TRIGGER_NESTLEVEL() > 1 RETURN;
 
     UPDATE v
-    SET v.vehicle_status = N'异常' -- 修正点：N与单引号紧贴，且使用单引号
+    SET v.vehicle_status = N'异常' 
     FROM Vehicles v
     INNER JOIN inserted i ON v.vehicle_id = i.vehicle_id
     WHERE v.is_deleted = 0;
