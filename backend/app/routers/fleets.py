@@ -63,7 +63,7 @@ def insert_fleet(center_id: int, fleet: FleetCreate, auth_info=Depends(require_a
         return {"detail": "车队和调度主管创建成功", "fleet_id": fleet_id, "manager_id": manager_id}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="创建车队失败") from e
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"创建车队失败: {e}") from e
 
 @router.get("/api/fleets/{fleet_id}", response_model=Fleet)
 def get_fleet_detail(
@@ -204,7 +204,7 @@ def get_fleet_monthly_report(
 @router.delete("/api/fleets/{fleet_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_fleet(fleet_id: int, auth_info=Depends(require_admin), conn=Depends(get_db)):
     cursor = conn.cursor(as_dict=False)
-    cursor.execute("SELECT 1 FROM DistributionCenters WHERE fleet_id = %s AND is_deleted = 0", (fleet_id,))
+    cursor.execute("SELECT 1 FROM Fleets WHERE fleet_id = %s AND is_deleted = 0", (fleet_id,))
     if cursor.fetchone() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"找不到ID为 {fleet_id} 的车队")
     try:
